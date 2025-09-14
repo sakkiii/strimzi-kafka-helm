@@ -17,7 +17,7 @@ maintainers:
     email: s@sakkiii.in
 dependencies:
   - name: strimzi-kafka-operator
-    version: "0.44.0"
+    version: "0.47.0"
     repository: "https://strimzi.io/charts/"
     condition: strimzi-kafka-operator.enabled
 annotations:
