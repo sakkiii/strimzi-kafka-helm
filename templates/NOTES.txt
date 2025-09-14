@@ -17,12 +17,16 @@
    Internal bootstrap server:
    {{ include "strimzi-kafka.clusterName" . }}-kafka-bootstrap.{{ include "strimzi-kafka.namespace" . }}.svc.cluster.local:9093
    
-   {{- range .Values.kafkaCluster.listeners }}
-   {{- if eq .type "ingress" }}
-   External bootstrap server ({{ .name }}):
-   {{ .configuration.bootstrap.host }}:{{ .port }}
-   {{- end }}
-   {{- end }}
+  {{- range .Values.kafkaCluster.listeners }}
+  {{- if eq .type "ingress" }}
+  External bootstrap server ({{ .name }}):
+  {{- if .configuration.host }}
+  {{ .configuration.host }}:{{ .port }}
+  {{- else }}
+  <configure ingress host in values>:{{ .port }}
+  {{- end }}
+  {{- end }}
+  {{- end }}
 
 4. Create a Kafka client pod for testing:
 

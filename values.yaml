@@ -380,14 +380,20 @@ kafkaCluster:
         com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal
 
 # Optional HPA Configuration
+# Horizontal Pod Autoscaler (HPA) Configuration
+# ⚠️  WARNING: HPA on Kafka Node Pools is RISKY and NOT recommended by Strimzi!
+# 🚨 Risks: Data loss, cluster instability, operator conflicts
+# 📋 Use at your own risk - ensure proper monitoring and testing
+# ✅ Benefit: Automatic scaling based on actual resource utilization (CPU/Memory)
 hpa:
-  enabled: false
+  enabled: false  # Disabled by default for safety
   minReplicas: 3
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
-  scaleUpPeriodSeconds: 300
-  scaleDownPeriodSeconds: 300
+  scaleUpPeriodSeconds: 600    # Conservative for Kafka (10 minutes)
+  scaleDownPeriodSeconds: 900  # Very conservative for Kafka (15 minutes)
+  # Metrics for all node pools (use with caution for brokers)
   metrics:
     - type: Resource
       resource:

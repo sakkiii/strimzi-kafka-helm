@@ -1,5 +1,13 @@
+{{- /*
+⚠️  WARNING: HPA on Kafka Node Pools is RISKY and NOT recommended by Strimzi!
+🚨 Risks: Data loss, cluster instability, operator conflicts
+📋 Use at your own risk - ensure proper monitoring and testing
+*/ -}}
+
 {{- if .Values.hpa.enabled }}
+{{- /* HPA for Kafka Node Pools - RISKY but resource-based scaling */ -}}
 {{- range .Values.kafkaCluster.nodePools }}
+---
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
@@ -9,10 +17,14 @@ metadata:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
     strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
     strimzi.io/nodepool: {{ .name }}
+    app.kubernetes.io/component: kafka-nodepool-hpa
     {{- with $.Values.global.commonLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
   annotations:
+    description: "⚠️ HPA for Kafka NodePool {{ .name }} - USE WITH CAUTION!"
+    warning: "Scaling Kafka nodes can cause data loss if not properly managed"
+    recommendation: "Monitor partition rebalancing and cluster health closely"
     {{- with $.Values.global.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -21,31 +33,93 @@ spec:
     apiVersion: kafka.strimzi.io/v1beta2
     kind: KafkaNodePool
     name: {{ .name }}
-  minReplicas: {{ $.Values.hpa.minReplicas }}
-  maxReplicas: {{ $.Values.hpa.maxReplicas }}
+  minReplicas: {{ (.hpa).minReplicas | default $.Values.hpa.minReplicas }}
+  maxReplicas: {{ (.hpa).maxReplicas | default $.Values.hpa.maxReplicas }}
   metrics:
+    {{- if and .hpa .hpa.metrics }}
+    {{- toYaml .hpa.metrics | nindent 4 }}
+    {{- else }}
     {{- toYaml $.Values.hpa.metrics | nindent 4 }}
+    {{- end }}
   behavior:
     scaleUp:
-      stabilizationWindowSeconds: {{ $.Values.hpa.scaleUpPeriodSeconds | default 300 }}
+      stabilizationWindowSeconds: {{ (.hpa).scaleUpPeriodSeconds | default $.Values.hpa.scaleUpPeriodSeconds | default 600 }}
+      policies:
+      - type: Percent
+        value: 50  # Conservative scaling for Kafka
+        periodSeconds: 120
+      - type: Pods
+        value: 1   # Scale one pod at a time for safety
+        periodSeconds: 120
+      selectPolicy: Min  # Use the more conservative policy
+    scaleDown:
+      stabilizationWindowSeconds: {{ (.hpa).scaleDownPeriodSeconds | default $.Values.hpa.scaleDownPeriodSeconds | default 900 }}
+      policies:
+      - type: Percent
+        value: 25  # Very conservative scale down
+        periodSeconds: 300
+      - type: Pods
+        value: 1   # Scale down one pod at a time
+        periodSeconds: 300
+      selectPolicy: Min  # Use the more conservative policy
+{{- end }}
+
+{{- /* HPA for Kafka Connect clusters */ -}}
+{{- range .Values.kafkaConnects }}
+{{- if and .enabled (or (not (hasKey . "hpa")) .hpa.enabled) }}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .name }}-connect-hpa
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
+  labels:
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
+    app.kubernetes.io/component: kafka-connect-hpa
+    {{- with $.Values.global.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    description: "HPA for Kafka Connect {{ .name }} - safer than broker scaling"
+    {{- with $.Values.global.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  scaleTargetRef:
+    apiVersion: kafka.strimzi.io/v1beta2
+    kind: KafkaConnect
+    name: {{ .name }}
+  minReplicas: {{ .hpa.minReplicas | default $.Values.hpa.minReplicas }}
+  maxReplicas: {{ .hpa.maxReplicas | default $.Values.hpa.maxReplicas }}
+  metrics:
+    {{- if .hpa.metrics }}
+    {{- toYaml .hpa.metrics | nindent 4 }}
+    {{- else }}
+    {{- toYaml $.Values.hpa.metrics | nindent 4 }}
+    {{- end }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ .hpa.scaleUpPeriodSeconds | default $.Values.hpa.scaleUpPeriodSeconds | default 300 }}
       policies:
       - type: Percent
         value: 100
-        periodSeconds: 15
+        periodSeconds: 60
       - type: Pods
         value: 2
         periodSeconds: 60
       selectPolicy: Max
     scaleDown:
-      stabilizationWindowSeconds: {{ $.Values.hpa.scaleDownPeriodSeconds | default 300 }}
+      stabilizationWindowSeconds: {{ .hpa.scaleDownPeriodSeconds | default $.Values.hpa.scaleDownPeriodSeconds | default 300 }}
       policies:
       - type: Percent
-        value: 10
+        value: 50
         periodSeconds: 60
       - type: Pods
         value: 1
         periodSeconds: 60
       selectPolicy: Min
----
 {{- end }}
+{{- end }}
+
 {{- end }}

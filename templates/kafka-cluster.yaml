@@ -74,11 +74,12 @@ spec:
           class: {{ .configuration.class }}
           {{- end }}
           {{- if .configuration.host }}
+          {{- $listener := . }}
           bootstrap:
-            host: {{ .configuration.host }}
-            {{- if .configuration.annotations }}
+            host: {{ $listener.configuration.host }}
+            {{- if $listener.configuration.annotations }}
             annotations:
-              {{- toYaml .configuration.annotations | nindent 14 }}
+              {{- toYaml $listener.configuration.annotations | nindent 14 }}
             {{- end }}
           brokers:
             {{- $maxBrokers := 10 }}
@@ -88,19 +89,19 @@ spec:
               {{- $maxReplicas := $.Values.hpa.maxReplicas }}
               {{- range $i := until (int $maxReplicas) }}
             - broker: {{ $i }}
-              host: {{ printf "broker-%d-%s" $i .configuration.host }}
-              {{- if .configuration.annotations }}
+              host: {{ printf "broker-%d-%s" $i $listener.configuration.host }}
+              {{- if $listener.configuration.annotations }}
               annotations:
-                {{- toYaml .configuration.annotations | nindent 16 }}
+                {{- toYaml $listener.configuration.annotations | nindent 16 }}
               {{- end }}
               {{- end }}
             {{- else }}
               {{- range $i := until (int $replicas) }}
             - broker: {{ $i }}
-              host: {{ printf "broker-%d-%s" $i .configuration.host }}
-              {{- if .configuration.annotations }}
+              host: {{ printf "broker-%d-%s" $i $listener.configuration.host }}
+              {{- if $listener.configuration.annotations }}
               annotations:
-                {{- toYaml .configuration.annotations | nindent 16 }}
+                {{- toYaml $listener.configuration.annotations | nindent 16 }}
               {{- end }}
               {{- end }}
             {{- end }}
