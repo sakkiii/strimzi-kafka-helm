@@ -1,0 +1,372 @@
+name: 🚀 Publish Strimzi Kafka Helm Chart
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'Chart.yaml'
+      - 'values.yaml'
+      - 'templates/**'
+      - 'values-*.yaml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'Chart.yaml'
+      - 'values.yaml'
+      - 'templates/**'
+      - 'values-*.yaml'
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: 'Version bump type'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+      force_publish:
+        description: 'Force publish even if version unchanged'
+        required: false
+        default: false
+        type: boolean
+
+env:
+  CHART_PATH: .
+  REPO_URL: https://your-username.github.io/strimzi-kafka-helm
+  REGISTRY: ghcr.io
+  CHART_NAME: strimzi-kafka-helm
+
+jobs:
+  # ==========================================
+  # VALIDATION & TESTING JOB
+  # ==========================================
+  # This job runs on both PRs and main branch pushes
+  # - On PRs: Only validates and tests (no publishing)
+  # - On main: Validates and provides outputs for publishing
+  validate:
+    name: 🔍 Validate & Test Chart
+    runs-on: ubuntu-22.04
+    outputs:
+      chart-version: ${{ steps.chart-info.outputs.version }}
+      app-version: ${{ steps.chart-info.outputs.app-version }}
+      version-changed: ${{ steps.version-check.outputs.changed }}
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Full history for version comparison
+
+      - name: 🛠️ Set up Helm
+        uses: azure/setup-helm@v4.2.0
+        with:
+          version: '3.14.0'  # Pin to specific version for reproducibility
+
+      - name: 📊 Extract Chart Information
+        id: chart-info
+        run: |
+          VERSION=$(yq eval '.version' Chart.yaml)
+          APP_VERSION=$(yq eval '.appVersion' Chart.yaml)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "app-version=$APP_VERSION" >> $GITHUB_OUTPUT
+          echo "📋 Chart Version: $VERSION"
+          echo "📋 App Version: $APP_VERSION"
+
+      - name: 🔄 Check Version Changes
+        id: version-check
+        run: |
+          CURRENT_VERSION="${{ steps.chart-info.outputs.version }}"
+          
+          # Check if this version already exists in releases
+          if git tag --list | grep -q "^v$CURRENT_VERSION$"; then
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Version $CURRENT_VERSION already exists"
+          else
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "✅ New version $CURRENT_VERSION detected"
+          fi
+
+      - name: 🔍 Lint Helm Chart
+        run: |
+          echo "🔍 Linting Helm chart..."
+          helm lint "${{ env.CHART_PATH }}"
+
+      - name: 📦 Update Dependencies
+        run: |
+          echo "📦 Updating Helm dependencies..."
+          helm dependency update "${{ env.CHART_PATH }}"
+
+      - name: 🧪 Template Validation
+        run: |
+          echo "🧪 Validating Helm templates..."
+          
+          # Test with different environment value files
+          for values_file in values-*.yaml; do
+            if [ -f "$values_file" ]; then
+              echo "Testing with $values_file"
+              helm template test-release . -f "$values_file" --debug > /dev/null
+            fi
+          done
+          
+          # Test default values
+          helm template test-release . --debug > /dev/null
+          echo "✅ All template validations passed"
+
+      - name: 🔒 Security Scan with Checkov
+        uses: bridgecrewio/checkov-action@master
+        with:
+          directory: .
+          framework: kubernetes
+          output_format: sarif
+          output_file_path: checkov-results.sarif
+        continue-on-error: true
+
+      - name: 📤 Upload Security Results
+        if: always()
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: checkov-results.sarif
+        continue-on-error: true
+
+      - name: 🔍 Kubeconform Validation
+        run: |
+          echo "🔍 Installing kubeconform..."
+          curl -L https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin
+          
+          echo "🧪 Validating Kubernetes manifests..."
+          # Use -skip to skip Strimzi custom resources that don't have schemas
+          # This prevents failures on Strimzi resources like Kafka, KafkaUser, KafkaTopic
+          # Also use -ignore-missing-schemas to be more permissive
+          helm template test-release . | kubeconform -skip Kafka,KafkaUser,KafkaTopic,KafkaConnect,KafkaRebalance,KafkaNodePool -ignore-missing-schemas -summary
+          
+          echo "✅ Kubeconform validation completed (custom resources skipped)"
+
+  # ==========================================
+  # PUBLISH JOB (Only on main branch)
+  # ==========================================
+  # This job only runs on main branch pushes when:
+  # - Version has changed (new chart version)
+  # - Force publish is requested via workflow_dispatch
+  # PRs will NOT trigger this job (only validation)
+  publish:
+    name: 📦 Package & Publish Chart
+    runs-on: ubuntu-22.04
+    needs: validate
+    if: |
+      github.ref == 'refs/heads/main' && 
+      (needs.validate.outputs.version-changed == 'true' || 
+       github.event.inputs.force_publish == 'true')
+    
+    permissions:
+      contents: write
+      pages: write
+      packages: write
+      id-token: write
+    
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 🛠️ Set up Helm
+        uses: azure/setup-helm@v4.2.0
+        with:
+          version: '3.14.0'
+
+      - name: 🔑 Install Helm Plugins
+        run: |
+          helm plugin install https://github.com/chartmuseum/helm-push || true
+          helm plugin install https://github.com/helm/helm-2to3 || true
+
+      - name: 📦 Update Dependencies
+        run: |
+          helm dependency update "${{ env.CHART_PATH }}"
+
+      - name: 📦 Package Helm Chart
+        run: |
+          mkdir -p packaged-charts
+          helm package "${{ env.CHART_PATH }}" -d packaged-charts/
+          
+          # List packaged files
+          ls -la packaged-charts/
+
+      - name: 🔐 Sign Chart (Optional)
+        if: env.GPG_PRIVATE_KEY != ''
+        env:
+          GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
+          GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+        run: |
+          echo "$GPG_PRIVATE_KEY" | gpg --import --batch --yes
+          for chart in packaged-charts/*.tgz; do
+            helm package --sign --key "Helm Chart Signing" --keyring ~/.gnupg/secring.gpg "$chart"
+          done
+
+      - name: 🐳 Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: 📦 Push to GitHub Packages (OCI)
+        run: |
+          VERSION="${{ needs.validate.outputs.chart-version }}"
+          CHART_FILE=$(find packaged-charts/ -name "*.tgz" | head -1)
+          
+          echo "📦 Pushing chart to GitHub Packages as OCI artifact..."
+          echo "🔗 Registry: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}"
+          echo "🏷️ Version: $VERSION"
+          
+          # Push chart as OCI artifact
+          helm push "$CHART_FILE" oci://${{ env.REGISTRY }}/${{ github.repository_owner }}
+          
+          echo "✅ Successfully pushed to GitHub Packages!"
+          echo "📋 Install command:"
+          echo "helm install my-kafka oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }} --version $VERSION"
+
+      - name: 📋 Generate Helm Index
+        run: |
+          helm repo index packaged-charts/ --url "${{ env.REPO_URL }}"
+          
+          # Add metadata to index.yaml
+          cat >> packaged-charts/index.yaml << EOF
+          # Generated on: $(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          # Chart Version: ${{ needs.validate.outputs.chart-version }}
+          # App Version: ${{ needs.validate.outputs.app-version }}
+          # Commit: ${{ github.sha }}
+          # OCI Registry: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }}
+          EOF
+
+      - name: 🏷️ Create Git Tag
+        run: |
+          VERSION="${{ needs.validate.outputs.chart-version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
+          git tag -a "v$VERSION" -m "Release version $VERSION"
+          git push origin "v$VERSION"
+
+      - name: 📝 Generate Release Notes
+        id: release-notes
+        run: |
+          VERSION="${{ needs.validate.outputs.chart-version }}"
+          APP_VERSION="${{ needs.validate.outputs.app-version }}"
+          
+          cat > release-notes.md << EOF
+          # Strimzi Kafka Helm Chart v$VERSION
+          
+          ## 📋 Chart Information
+          - **Chart Version**: $VERSION
+          - **App Version**: $APP_VERSION (Apache Kafka)
+          - **Release Date**: $(date -u +"%Y-%m-%d")
+          - **Strimzi Operator**: Compatible with Strimzi 0.47.0+
+          
+          ## 🚀 Installation Options
+          
+          ### Option 1: GitHub Pages (Traditional Helm Repository)
+          \`\`\`bash
+          helm repo add strimzi-kafka-helm ${{ env.REPO_URL }}
+          helm repo update
+          helm install my-kafka strimzi-kafka-helm/strimzi-kafka --version $VERSION
+          \`\`\`
+          
+          ### Option 2: GitHub Packages (OCI Registry)
+          \`\`\`bash
+          helm install my-kafka oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }} --version $VERSION
+          \`\`\`
+          
+          ## 🔐 Security Features
+          - ✅ **KRaft Mode Only** - No ZooKeeper dependency
+          - ✅ **TLS Encryption** - End-to-end encryption
+          - ✅ **SCRAM-SHA-512 Authentication** - Secure authentication
+          - ✅ **ACL Authorization** - Fine-grained access control
+          - ✅ **Production Security Hardening** - Secure defaults
+          
+          ## 📦 What's Included
+          - **KRaft Mode Kafka Clusters** - Modern Kafka without ZooKeeper
+          - **Flexible Node Pools** - Controller, Broker, or Dual-role nodes
+          - **Multiple Listeners** - Internal, External, Ingress support
+          - **User & Topic Management** - Declarative KafkaUser and KafkaTopic resources
+          - **Kafka Connect** - Stream processing integration
+          - **Cruise Control** - Automated rebalancing and optimization
+          - **Comprehensive Monitoring** - JMX metrics and dashboards
+          - **Multi-Environment Support** - Dev, Staging, Production configurations
+          
+          ## 📚 Documentation
+          - [Chart README](https://github.com/${{ github.repository }}/blob/main/README.md)
+          - [Security Guide](https://github.com/${{ github.repository }}/blob/main/SECURITY.md)
+          - [Upgrade Guide](https://github.com/${{ github.repository }}/blob/main/upgrades.md)
+          - [Contributing Guide](https://github.com/${{ github.repository }}/blob/main/CONTRIBUTING.md)
+          
+          ## 🔄 Upgrade Instructions
+          
+          ### From GitHub Pages Repository:
+          \`\`\`bash
+          helm upgrade my-kafka strimzi-kafka-helm/strimzi-kafka --version $VERSION
+          \`\`\`
+          
+          ### From GitHub Packages (OCI):
+          \`\`\`bash
+          helm upgrade my-kafka oci://${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.CHART_NAME }} --version $VERSION
+          \`\`\`
+          
+          ## ⚠️ Important Notes
+          - **KRaft Mode Only**: This chart only supports KRaft mode (no ZooKeeper)
+          - **Strimzi Operator Required**: Ensure Strimzi Kafka Operator is installed
+          - **Security First**: Review [SECURITY.md](https://github.com/${{ github.repository }}/blob/main/SECURITY.md) for production deployments
+          
+          ---
+          **Full Changelog**: https://github.com/${{ github.repository }}/compare/v$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "0.0.0")...v$VERSION
+          EOF
+
+      - name: 🚀 Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: packaged-charts
+          publish_branch: gh-pages
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"
+          commit_message: "📦 Publish chart version ${{ needs.validate.outputs.chart-version }}"
+
+      - name: 🎉 Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "v${{ needs.validate.outputs.chart-version }}"
+          name: "Strimzi Kafka Helm Chart v${{ needs.validate.outputs.chart-version }}"
+          body_path: release-notes.md
+          files: |
+            packaged-charts/*.tgz
+            packaged-charts/*.tgz.prov
+          draft: false
+          prerelease: false
+
+  # ==========================================
+  # NOTIFICATION JOB
+  # ==========================================
+  notify:
+    name: 📢 Notify Success
+    runs-on: ubuntu-22.04
+    needs: [validate, publish]
+    if: always() && needs.publish.result == 'success'
+    
+    steps:
+      - name: 🎉 Success Notification
+        run: |
+          echo "🎉 Successfully published Strimzi Kafka Helm Chart!"
+          echo "📦 Version: ${{ needs.validate.outputs.chart-version }}"
+          echo ""
+          echo "📍 Available from multiple sources:"
+          echo "🔗 GitHub Pages: ${{ env.REPO_URL }}"
+          echo "📦 GitHub Packages: ghcr.io/${{ github.repository_owner }}/${{ env.CHART_NAME }}"
+          echo "📋 Release: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.validate.outputs.chart-version }}"
+          echo ""
+          echo "📋 Installation commands:"
+          echo "helm repo add strimzi-kafka-helm ${{ env.REPO_URL }} && helm install my-kafka strimzi-kafka-helm/strimzi-kafka"
+          echo "helm install my-kafka oci://ghcr.io/${{ github.repository_owner }}/${{ env.CHART_NAME }}"
