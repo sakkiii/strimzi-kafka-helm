@@ -74,17 +74,14 @@ spec:
           {{- if .configuration.class }}
           class: {{ .configuration.class }}
           {{- end }}
-          {{- if .configuration.bootstrap }}
+          {{- if .configuration.host }}
           bootstrap:
-            host: {{ .configuration.bootstrap.host }}
-            {{- if .configuration.bootstrap.annotations }}
+            host: {{ .configuration.host }}
+            {{- if .configuration.annotations }}
             annotations:
-              {{- toYaml .configuration.bootstrap.annotations | nindent 14 }}
+              {{- toYaml .configuration.annotations | nindent 14 }}
             {{- end }}
-          {{- end }}
-          {{- if .configuration.brokers }}
           brokers:
-            {{- $listener := . }}
             {{- $maxBrokers := 10 }}
             {{- $hpaEnabled := $.Values.hpa.enabled }}
             {{- $replicas := $.Values.kafkaCluster.replicas }}
@@ -92,32 +89,24 @@ spec:
               {{- $maxReplicas := $.Values.hpa.maxReplicas }}
               {{- range $i := until (int $maxReplicas) }}
             - broker: {{ $i }}
-              host: {{ $listener.configuration.brokers.hostTemplate | replace "{id}" (toString $i) }}
-              {{- if $listener.configuration.brokers.annotations }}
+              host: {{ printf "broker-%d-%s" $i .configuration.host }}
+              {{- if .configuration.annotations }}
               annotations:
-                {{- range $key, $value := $listener.configuration.brokers.annotations }}
-                {{ $key }}: {{ $value | replace "{id}" (toString $i) | quote }}
-                {{- end }}
+                {{- toYaml .configuration.annotations | nindent 16 }}
               {{- end }}
               {{- end }}
             {{- else }}
               {{- range $i := until (int $replicas) }}
             - broker: {{ $i }}
-              host: {{ $listener.configuration.brokers.hostTemplate | replace "{id}" (toString $i) }}
-              {{- if $listener.configuration.brokers.annotations }}
+              host: {{ printf "broker-%d-%s" $i .configuration.host }}
+              {{- if .configuration.annotations }}
               annotations:
-                {{- range $key, $value := $listener.configuration.brokers.annotations }}
-                {{ $key }}: {{ $value | replace "{id}" (toString $i) | quote }}
-                {{- end }}
+                {{- toYaml .configuration.annotations | nindent 16 }}
               {{- end }}
               {{- end }}
             {{- end }}
           {{- end }}
           {{- if .configuration.tls }}
-          {{- if .configuration.tls.secretName }}
-          bootstrap:
-            secretName: {{ include "strimzi-kafka.secretName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "secretName" .configuration.tls.secretName) }}
-          {{- end }}
           {{- if .configuration.tls.brokerSecretName }}
           brokerCertChainAndKey:
             secretName: {{ include "strimzi-kafka.secretName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "secretName" .configuration.tls.brokerSecretName) }}

@@ -204,42 +204,31 @@ kafkaCluster:
       authentication:
         type: scram-sha-512
     
-    # External Ingress Listener with full configuration
-    - name: "external"
-      port: 9095
-      type: ingress
-      tls: true
-      authentication:
-        type: scram-sha-512
-      
-      # Kubernetes-style Ingress Configuration
-      configuration:
-        # Ingress class name (e.g., nginx, alb, traefik)
-        class: "nginx"
-        
-        # Bootstrap ingress configuration
-        bootstrap:
-          host: "kafka.example.com"  # Override in values-<env>.yaml
-          annotations: 
-            external-dns.alpha.kubernetes.io/hostname: "kafka.example.com"
-            external-dns.alpha.kubernetes.io/ttl: "60"
-            # nginx.ingress.kubernetes.io/ssl-redirect: "true"
-            # cert-manager.io/cluster-issuer: "letsencrypt-prod"
-        
-        # Dynamic broker configuration
-        brokers:
-          # Broker host pattern: broker-{id}-{bootstrap.host}
-          hostTemplate: "broker-{id}-kafka.example.com"  # Override in values-<env>.yaml
-          annotations:
-            external-dns.alpha.kubernetes.io/hostname: "broker-{id}-kafka.example.com"
-            external-dns.alpha.kubernetes.io/ttl: "60"
-        
-        # TLS Configuration
-        tls:
-          secretName: "kafka-tls-secret"  # Will be prefixed with cluster name
-          brokerSecretName: "kafka-broker-tls"  # Will be prefixed with cluster name
-          brokerCertificate: tls.crt
-          brokerKey: tls.key
+    # External Ingress Listener with full configuration (disabled by default)
+    # - name: "external"
+    #   port: 9095
+    #   type: ingress
+    #   tls: true
+    #   authentication:
+    #     type: scram-sha-512
+    #   
+    #   # Kubernetes-style Ingress Configuration
+    #   configuration:
+    #     # Ingress class name (uses ingressConfig.ingressClass if not specified)
+    #     class: "nginx"
+    #     host: "kafka.example.com"  # Override in values-<env>.yaml
+    #     annotations: 
+    #       external-dns.alpha.kubernetes.io/hostname: "kafka.example.com"
+    #       external-dns.alpha.kubernetes.io/ttl: "60"
+    #       # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    #       # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    #     
+    #     # TLS Configuration
+    #     tls:
+    #       secretName: "kafka-tls-secret"  # Will be prefixed with cluster name
+    #       brokerSecretName: "kafka-broker-tls"  # Will be prefixed with cluster name
+    #       brokerCertificate: tls.crt
+    #       brokerKey: tls.key
     
     # Example: External LoadBalancer Listener (disabled by default)
     # - name: "loadbalancer"
@@ -265,9 +254,11 @@ kafkaCluster:
   # Authorization Configuration
   authorization:
     type: simple
-    superUsers:
-      - CN=om-kafka-superuser
-      - mm2-user
+    superUsers: []  # Add superuser principals here, e.g., ["CN=kafka-admin", "kafka-superuser"]
+    # Example superUsers:
+    # - CN=kafka-admin
+    # - kafka-superuser
+    # - mm2-user
 
   # Kafka Configuration
   config:
