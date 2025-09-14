@@ -1,0 +1,51 @@
+{{- if .Values.hpa.enabled }}
+{{- range .Values.kafkaCluster.nodePools }}
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: {{ .name }}-hpa
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
+  labels:
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
+    strimzi.io/nodepool: {{ .name }}
+    {{- with $.Values.global.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    {{- with $.Values.global.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  scaleTargetRef:
+    apiVersion: kafka.strimzi.io/v1beta2
+    kind: KafkaNodePool
+    name: {{ .name }}
+  minReplicas: {{ $.Values.hpa.minReplicas }}
+  maxReplicas: {{ $.Values.hpa.maxReplicas }}
+  metrics:
+    {{- toYaml $.Values.hpa.metrics | nindent 4 }}
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: {{ $.Values.hpa.scaleUpPeriodSeconds | default 300 }}
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 15
+      - type: Pods
+        value: 2
+        periodSeconds: 60
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: {{ $.Values.hpa.scaleDownPeriodSeconds | default 300 }}
+      policies:
+      - type: Percent
+        value: 10
+        periodSeconds: 60
+      - type: Pods
+        value: 1
+        periodSeconds: 60
+      selectPolicy: Min
+---
+{{- end }}
+{{- end }}

@@ -1,0 +1,44 @@
+{{- range $clusterName, $cluster := .Values.kafkaClusters }}
+{{- if and $cluster.enabled $cluster.rebalanceTemplates }}
+{{- $clusterContext := dict "clusterName" $clusterName "context" $ }}
+{{- range $cluster.rebalanceTemplates }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaRebalance
+metadata:
+  name: {{ .name }}
+  namespace: {{ $cluster.namespace }}
+  labels:
+    {{- include "strimzi-kafka-multi-cluster.clusterLabels" $clusterContext | nindent 4 }}
+  annotations:
+    strimzi.io/rebalance-template: "true"
+    {{- include "strimzi-kafka-multi-cluster.annotations" $ | nindent 4 }}
+spec:
+  {{- if .goals }}
+  goals:
+    {{- range .goals }}
+    - {{ . }}
+    {{- end }}
+  {{- end }}
+  {{- if .skipHardGoalCheck }}
+  skipHardGoalCheck: {{ .skipHardGoalCheck }}
+  {{- end }}
+  {{- if .excludedTopics }}
+  excludedTopics: {{ .excludedTopics | quote }}
+  {{- end }}
+  {{- if .concurrentPartitionMovementsPerBroker }}
+  concurrentPartitionMovementsPerBroker: {{ .concurrentPartitionMovementsPerBroker }}
+  {{- end }}
+  {{- if .concurrentIntraBrokerPartitionMovements }}
+  concurrentIntraBrokerPartitionMovements: {{ .concurrentIntraBrokerPartitionMovements }}
+  {{- end }}
+  {{- if .concurrentLeaderMovements }}
+  concurrentLeaderMovements: {{ .concurrentLeaderMovements }}
+  {{- end }}
+  {{- if .replicationThrottle }}
+  replicationThrottle: {{ .replicationThrottle }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+

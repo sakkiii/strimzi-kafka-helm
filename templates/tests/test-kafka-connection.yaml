@@ -1,0 +1,82 @@
+{{- range $clusterName, $cluster := .Values.kafkaClusters }}
+{{- if $cluster.enabled }}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "strimzi-kafka-multi-cluster.fullname" $ }}-test-{{ $clusterName }}"
+  namespace: {{ $cluster.namespace }}
+  labels:
+    {{- include "strimzi-kafka-multi-cluster.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "1"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  restartPolicy: Never
+  containers:
+  - name: kafka-test
+    image: quay.io/strimzi/kafka:0.44.0-kafka-3.9.0
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        echo "Testing Kafka cluster: {{ $cluster.name }}"
+        
+        # Test internal connectivity
+        echo "Testing internal Kafka connectivity..."
+        /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server {{ $cluster.name }}-kafka-bootstrap.{{ $cluster.namespace }}.svc.cluster.local:9093 --command-config /tmp/client.properties
+        
+        # Test topic creation if auto.create.topics.enable is true
+        {{- if and $cluster.kafka.config (eq (toString $cluster.kafka.config.auto.create.topics.enable) "true") }}
+        echo "Testing topic auto-creation..."
+        /opt/kafka/bin/kafka-console-producer.sh --bootstrap-server {{ $cluster.name }}-kafka-bootstrap.{{ $cluster.namespace }}.svc.cluster.local:9093 --topic test-topic-{{ $clusterName }} --producer.config /tmp/client.properties < /dev/null || true
+        {{- end }}
+        
+        # Test cluster health
+        echo "Testing cluster health..."
+        /opt/kafka/bin/kafka-metadata.sh --bootstrap-server {{ $cluster.name }}-kafka-bootstrap.{{ $cluster.namespace }}.svc.cluster.local:9093 --command-config /tmp/client.properties
+        
+        echo "Kafka cluster {{ $cluster.name }} test completed successfully!"
+    
+    volumeMounts:
+    - name: client-config
+      mountPath: /tmp
+      readOnly: true
+    
+    {{- if or $cluster.kafka.nodePool.tolerations $cluster.kafka.nodePool.nodeAffinity.enabled }}
+    {{- include "strimzi-kafka-multi-cluster.tolerations" $cluster.kafka.nodePool.tolerations | nindent 2 }}
+    affinity:
+      {{- include "strimzi-kafka-multi-cluster.nodeAffinity" $cluster.kafka.nodePool | nindent 6 }}
+    {{- end }}
+  
+  volumes:
+  - name: client-config
+    configMap:
+      name: {{ include "strimzi-kafka-multi-cluster.fullname" $ }}-test-config-{{ $clusterName }}
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "strimzi-kafka-multi-cluster.fullname" $ }}-test-config-{{ $clusterName }}
+  namespace: {{ $cluster.namespace }}
+  labels:
+    {{- include "strimzi-kafka-multi-cluster.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: test
+  annotations:
+    "helm.sh/hook": test
+    "helm.sh/hook-weight": "0"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+data:
+  client.properties: |
+    security.protocol=SSL
+    ssl.truststore.location=/opt/kafka/cluster-ca-certs/ca.p12
+    ssl.truststore.password=
+    ssl.truststore.type=PKCS12
+    ssl.endpoint.identification.algorithm=HTTPS
+{{- end }}
+{{- end }}
+

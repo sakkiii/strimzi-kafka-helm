@@ -1,0 +1,511 @@
+# Default values for strimzi-kafka.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+global:
+  # Global configuration for scheduling (applied to all components unless overridden)
+  # All other values use Helm built-in variables: {{ .Release.Name }}, {{ .Release.Namespace }}
+  
+  # Default Image Configuration
+  # These settings provide defaults for all Strimzi components
+  defaultImageRegistry: "quay.io"
+  defaultImageRepository: "strimzi"
+  defaultImageTag: "0.47.0-kafka-3.9.0" # Strimzi version with Kafka version
+  
+  # Global Image Pull Configuration
+  imagePullPolicy: "IfNotPresent" # Always, Never, IfNotPresent
+  imagePullSecrets: []
+    # - name: "private-registry-secret"
+    # - name: "ecr-registry-secret"
+  
+  # Common labels applied to all resources
+  commonLabels: {}
+  # Common annotations applied to all resources
+  commonAnnotations: {}
+  
+  # Global Node Selection - Simple and flexible (applied to all components unless overridden)
+  nodeSelector: {}
+    # Examples:
+    # node-type: "kafka"
+    # eks.amazonaws.com/nodegroup: "kafka-nodegroup"
+    # kubernetes.io/arch: "amd64"
+  
+  # Global Affinity Configuration (applied to all components unless overridden)
+  # Use nodeSelector above for simple node selection, affinity for complex scenarios
+  affinity: {}
+    # nodeAffinity:
+    #   requiredDuringSchedulingIgnoredDuringExecution:
+    #     nodeSelectorTerms:
+    #       - matchExpressions:
+    #           - key: eks.amazonaws.com/nodegroup
+    #             operator: In
+    #             values:
+    #               - "default-nodegroup"
+    #   preferredDuringSchedulingIgnoredDuringExecution: []
+    # podAffinity:
+    #   requiredDuringSchedulingIgnoredDuringExecution: []
+    #   preferredDuringSchedulingIgnoredDuringExecution: []
+    # podAntiAffinity:
+    #   requiredDuringSchedulingIgnoredDuringExecution: []
+    #   preferredDuringSchedulingIgnoredDuringExecution:
+    #     - weight: 100
+    #       podAffinityTerm:
+    #         labelSelector:
+    #           matchExpressions:
+    #             - key: strimzi.io/cluster
+    #               operator: In
+    #               values:
+    #                 - "{{ .Release.Name }}"
+    #         topologyKey: kubernetes.io/hostname
+  
+  # Global Tolerations Configuration (applied to all components unless overridden)
+  tolerations: []
+    # Example tolerations:
+    # - key: "node-role"
+    #   operator: "Equal"
+    #   value: "kafka"
+    #   effect: "NoSchedule"
+    # - key: "dedicated"
+    #   operator: "Equal"
+    #   value: "kafka-workload"
+    #   effect: "NoExecute"
+
+strimzi:
+  operator:
+    install: false # Set to true if you want to install the Strimzi operator via this chart (not recommended for multi-cluster)
+    namespace: "strimzi-operator" # Namespace where Strimzi operator is installed
+    
+    # Strimzi Operator Image Configuration
+    image:
+      registry: "" # If empty, uses global.defaultImageRegistry
+      repository: "" # If empty, uses global.defaultImageRepository
+      name: "operator" # Operator image name
+      tag: "" # If empty, uses global.defaultImageTag
+      pullPolicy: "" # If empty, uses global.imagePullPolicy
+      pullSecrets: [] # Additional pull secrets specific to operator
+        # - name: "operator-registry-secret"
+    
+    # Operator-specific resource configuration
+    resources:
+      requests:
+        memory: "384Mi"
+        cpu: "200m"
+      limits:
+        memory: "384Mi"
+        cpu: "1000m"
+
+kafkaCluster:
+  enabled: true
+  name: ""  # Defaults to {{ .Release.Name }} if empty
+  namespace: ""  # Defaults to {{ .Release.Namespace }} if empty
+  
+  # Kafka Version Configuration
+  version: "3.9.0" # Kafka version (3.8.0, 3.9.0, etc.)
+  
+  # Replica Configuration
+  replicas: 3 # Number of Kafka brokers
+  
+  # Kafka Image Configuration
+  # Override global image settings for Kafka-specific components
+  image:
+    registry: "" # If empty, uses global.defaultImageRegistry
+    repository: "" # If empty, uses global.defaultImageRepository  
+    tag: "" # If empty, uses global.defaultImageTag
+    pullPolicy: "" # If empty, uses global.imagePullPolicy
+    pullSecrets: [] # Additional pull secrets for Kafka components
+      # - name: "kafka-registry-secret"
+  
+  
+  # Node Pools Configuration - Flexible role assignment for KRaft mode
+  # Supported roles: broker, controller, or both (dual-role)
+  # Reference: https://strimzi.io/docs/operators/latest/deploying#assembly-kraft-mode-str
+  nodePools:
+    # Default: Dual-role nodes (broker + controller) - suitable for development/testing
+    - name: "dual-role"  # Will be prefixed with cluster name
+      replicas: 3
+      roles:
+        - broker      # Handles client requests and data storage
+        - controller  # Manages cluster metadata and leader elections
+      # Alternative configurations (uncomment as needed):
+      
+      # Option 1: Dedicated controller nodes (recommended for production)
+      # - name: "{{ .Release.Name }}-controllers"
+      #   replicas: 3  # Should be odd number (3 or 5) for quorum
+      #   roles:
+      #     - controller
+      #   resources:
+      #     requests:
+      #       memory: "1Gi"
+      #       cpu: "500m"
+      #     limits:
+      #       memory: "2Gi"
+      #       cpu: "1000m"
+      
+      # Option 2: Dedicated broker nodes (for production with separate controllers)
+      # - name: "{{ .Release.Name }}-brokers"
+      #   replicas: 6  # Can be any number based on throughput needs
+      #   roles:
+      #     - broker
+      #   resources:
+      #     requests:
+      #       memory: "4Gi"
+      #       cpu: "1000m"
+      #     limits:
+      #       memory: "8Gi"
+      #       cpu: "2000m"
+      resources:
+        requests:
+          memory: 4Gi
+          cpu: 1
+        limits:
+          memory: 4Gi
+          cpu: 2
+      jvmOptions:
+        xms: "2g"
+        xmx: "2g"
+      
+      # Storage Configuration
+      storage:
+        enabled: true
+        type: jbod
+        volumes:
+          - id: 1
+            type: persistent-claim
+            size: 100Gi
+            deleteClaim: false
+            kraftMetadata: shared
+            storageClass: "" # Optional: specify storage class
+      
+      # Pod Template Configuration
+      template:
+        pod:
+          terminationGracePeriodSeconds: 60
+          # Affinity and Tolerations are inherited from global configuration
+          # Override here only if component-specific settings are needed
+          affinity: {}
+          tolerations: []
+  
+  # Listeners Configuration - Flexible list-based approach
+  # Each listener can be customized with different types, ports, and authentication
+  listeners:
+    # Internal TLS Listener (always recommended for production)
+    - name: "tls"
+      port: 9093
+      type: internal
+      tls: true
+      authentication:
+        type: tls
+    
+    # Internal SCRAM-SHA-512 Listener (optional)
+    - name: "scram"
+      port: 9094
+      type: internal
+      tls: true
+      authentication:
+        type: scram-sha-512
+    
+    # External Ingress Listener with full configuration
+    - name: "external"
+      port: 9095
+      type: ingress
+      tls: true
+      authentication:
+        type: scram-sha-512
+      
+      # Kubernetes-style Ingress Configuration
+      configuration:
+        # Ingress class name (e.g., nginx, alb, traefik)
+        class: "nginx"
+        
+        # Bootstrap ingress configuration
+        bootstrap:
+          host: "kafka.example.com"  # Override in values-<env>.yaml
+          annotations: 
+            external-dns.alpha.kubernetes.io/hostname: "kafka.example.com"
+            external-dns.alpha.kubernetes.io/ttl: "60"
+            # nginx.ingress.kubernetes.io/ssl-redirect: "true"
+            # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+        
+        # Dynamic broker configuration
+        brokers:
+          # Broker host pattern: broker-{id}-{bootstrap.host}
+          hostTemplate: "broker-{id}-kafka.example.com"  # Override in values-<env>.yaml
+          annotations:
+            external-dns.alpha.kubernetes.io/hostname: "broker-{id}-kafka.example.com"
+            external-dns.alpha.kubernetes.io/ttl: "60"
+        
+        # TLS Configuration
+        tls:
+          secretName: "kafka-tls-secret"  # Will be prefixed with cluster name
+          brokerSecretName: "kafka-broker-tls"  # Will be prefixed with cluster name
+          brokerCertificate: tls.crt
+          brokerKey: tls.key
+    
+    # Example: External LoadBalancer Listener (disabled by default)
+    # - name: "loadbalancer"
+    #   port: 9096
+    #   type: loadbalancer
+    #   tls: true
+    #   authentication:
+    #     type: tls
+    #   configuration:
+    #     loadBalancerSourceRanges: []
+    #     annotations: {}
+    
+    # Example: External NodePort Listener (disabled by default)
+    # - name: "nodeport"
+    #   port: 9097
+    #   type: nodeport
+    #   tls: true
+    #   authentication:
+    #     type: tls
+    #   configuration:
+    #     nodePort: 32000
+
+  # Authorization Configuration
+  authorization:
+    type: simple
+    superUsers:
+      - CN=om-kafka-superuser
+      - mm2-user
+
+  # Kafka Configuration
+  config:
+    replica.selector.class: org.apache.kafka.common.replica.RackAwareReplicaSelector
+    ssl.enabled.protocols: TLSv1.3, TLSv1.2
+    ssl.protocol: TLSv1.3
+    offsets.topic.replication.factor: 3
+    transaction.state.log.replication.factor: 3
+    transaction.state.log.min.isr: 2
+    default.replication.factor: 3
+    min.insync.replicas: 2
+    auto.leader.rebalance.enable: true
+    leader.imbalance.check.interval.seconds: 300
+    leader.imbalance.per.broker.percentage: 10
+    unclean.leader.election.enable: false
+    group.initial.rebalance.delay.ms: 3000
+    num.partitions: 2
+    num.io.threads: 8
+    queued.max.requests: 500
+    num.network.threads: 3
+    num.recovery.threads.per.data.dir: 1
+    log.retention.hours: 1
+    log.segment.bytes: 1073741824
+    log.retention.check.interval.ms: 300000
+    socket.send.buffer.bytes: 1048576
+    socket.receive.buffer.bytes: 1048576
+    socket.request.max.bytes: 104857600
+    auto.create.topics.enable: true
+    # Large message support configuration
+    message.max.bytes: 10000000 # 10MB max message size
+    replica.fetch.max.bytes: 10485760 # 10MB replica fetch
+
+  # Rack Awareness
+  rack:
+    topologyKey: topology.kubernetes.io/zone
+
+  # Optional Metrics Configuration
+  metricsConfig:
+    enabled: true
+    type: jmxPrometheusExporter
+    configMapName: kafka-metrics
+    configMapKey: kafka-metrics-config.yml
+
+  # Entity Operator Configuration
+  entityOperator:
+    enabled: true
+    topicOperator: {}
+    userOperator: {}
+    template:
+      pod:
+        # Affinity and Tolerations inherited from global configuration
+        affinity: {}
+        tolerations: []
+
+  # Optional Kafka Exporter Configuration
+  kafkaExporter:
+    enabled: true
+    resources:
+      requests:
+        cpu: 1
+        memory: 512Mi
+      limits:
+        cpu: 2
+        memory: 1024Mi
+    topicRegex: ".*"
+    groupRegex: ".*"
+    template:
+      pod:
+        # Affinity and Tolerations inherited from global configuration
+        affinity: {}
+        tolerations: []
+
+  # Optional Cruise Control Configuration
+  cruiseControl:
+    enabled: true
+    autoRebalance:
+      enabled: true
+      modes:
+        - mode: add-brokers
+          templateName: "rebalance-template"  # Will be prefixed with cluster name
+        - mode: remove-brokers
+          templateName: "rebalance-template"  # Will be prefixed with cluster name
+    resources:
+      requests:
+        memory: 2Gi
+        cpu: 1
+      limits:
+        memory: 2Gi
+        cpu: 2
+    template:
+      pod:
+        # Affinity and Tolerations inherited from global configuration
+        affinity: {}
+        tolerations: []
+    metricsConfig:
+      enabled: true
+      type: jmxPrometheusExporter
+      configMapName: cruise-control-metrics
+      configMapKey: cruise-control-metrics-config.yml
+    config:
+      goals: >
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.MinTopicLeadersPerBrokerGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuCapacityGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaDistributionGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.PotentialNwOutGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskUsageDistributionGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.CpuUsageDistributionGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.TopicReplicaDistributionGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderReplicaDistributionGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.LeaderBytesInDistributionGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.PreferredLeaderElectionGoal
+      default.goals: >
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal
+      hard.goals: >
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.ReplicaCapacityGoal,
+        com.linkedin.kafka.cruisecontrol.analyzer.goals.DiskCapacityGoal
+
+# Optional HPA Configuration
+hpa:
+  enabled: false
+  minReplicas: 3
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+  scaleUpPeriodSeconds: 300
+  scaleDownPeriodSeconds: 300
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+# Kafka Users Configuration
+kafkaUsers: [] # Array of KafkaUser objects
+  # - name: mm2-user
+  #   authentication:
+  #     type: scram-sha-512
+  #   authorization:
+  #     type: simple
+  #     acls:
+  #       - resource: { type: topic, name: "*", patternType: literal }
+  #         operations: [Describe, Read]
+  #         host: "*"
+  #       - resource: { type: group, name: "my-group", patternType: literal }
+  #         operations: [Read]
+  #         host: "*"
+  #       - resource: { type: topic, name: "*", patternType: literal }
+  #         operations: [Create, Describe, Write]
+  #         host: "*"
+  # - name: om-kafka-superuser
+  #   authentication:
+  #     type: tls
+
+# Kafka Topics Configuration
+kafkaTopics: [] # Array of KafkaTopic objects
+  # - name: mongo
+  #   partitions: 3
+  #   replicas: 3
+  #   config:
+  #     retention.ms: 1800000
+  #     segment.bytes: 1073741824
+
+# Kafka Connect Configuration
+kafkaConnects: [] # Array of KafkaConnect objects
+  # - name: os-connect-cluster
+  #   replicas: 1
+  #   version: "3.9.0"
+  #   # Image Configuration for this Connect cluster
+  #   image:
+  #     registry: "" # If empty, uses global.defaultImageRegistry
+  #     repository: "" # If empty, uses global.defaultImageRepository
+  #     name: "kafka-connect" # Connect image name
+  #     tag: "" # If empty, uses global.defaultImageTag
+  #     pullPolicy: "" # If empty, uses global.imagePullPolicy
+  #     pullSecrets: [] # Additional pull secrets for this Connect cluster
+  #   resources:
+  #     requests:
+  #       memory: 2Gi
+  #       cpu: 1
+  #     limits:
+  #       memory: 2Gi
+  #       cpu: 2
+  #   bootstrapServers: "{{ .Release.Name }}.example.com:443"
+  #   rack:
+  #     topologyKey: topology.kubernetes.io/zone
+  #   config:
+  #     group.id: "connect-cluster"
+  #     config.storage.topic: "connect-configs"
+  #     offset.storage.topic: "connect-offsets"
+  #     status.storage.topic: "connect-status"
+  #     key.converter: "org.apache.kafka.connect.storage.StringConverter"
+  #     value.converter: "org.apache.kafka.connect.json.JsonConverter"
+  #     value.converter.schemas.enable: "false"
+  #   tls:
+  #     trustedCertificates:
+  #       - secretName: "{{ .Release.Name }}-tls"
+  #         pattern: "*.crt"
+  #       - secretName: acm-kafka-tls-cert # Example for additional certs
+  #         pattern: "*.crt"
+  #   authentication:
+  #     type: scram-sha-512
+  #     username: mm2-user
+  #     passwordSecret:
+  #       secretName: os-connect-secret
+  #       password: password
+  #   build:
+  #     output:
+  #       type: docker
+  #       image: "{{ .Values.global.imageRegistry }}/onemind-dev-ec1-strimzi-images:{{ .Values.global.imageTag }}"
+  #     plugins:
+  #       - name: opensearch-sink
+  #         artifacts:
+  #           - type: zip
+  #             url: https://github.com/Aiven-Open/opensearch-connector-for-apache-kafka/releases/download/v3.1.1/opensearch-connector-for-apache-kafka-3.1.1.zip
+  #   metricsConfig:
+  #     type: jmxPrometheusExporter
+  #     configMapName: connect-metrics
+  #     configMapKey: metrics-config.yml
+
+# Optional Kafka Rebalance Configuration
+kafkaRebalances: [] # Array of KafkaRebalance objects
+  # - name: om-rebalance-template
+  #   goals:
+  #     - ReplicaCapacityGoal
+  #     - DiskCapacityGoal
+  #     - ReplicaDistributionGoal
+  #     - DiskUsageDistributionGoal
+  #     - TopicReplicaDistributionGoal
+  #     - LeaderReplicaDistributionGoal
+  #     - LeaderBytesInDistributionGoal

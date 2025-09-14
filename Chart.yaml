@@ -1,0 +1,25 @@
+apiVersion: v2
+name: strimzi-kafka-helm
+description: A flexible Helm chart for deploying Strimzi Kafka clusters with KRaft mode, multiple listeners, and comprehensive configuration options
+type: application
+version: 0.1.0
+appVersion: "3.9.0"
+keywords:
+  - kafka
+  - strimzi
+  - streaming
+  - messaging
+home: https://strimzi.io/
+sources:
+  - https://github.com/strimzi/strimzi-kafka-operator
+maintainers:
+  - name: Platform Team
+    email: platform-team@company.com
+dependencies:
+  - name: strimzi-kafka-operator
+    version: "0.44.0"
+    repository: "https://strimzi.io/charts/"
+    condition: strimzi-kafka-operator.enabled
+annotations:
+  category: Infrastructure
+  licenses: Apache-2.0

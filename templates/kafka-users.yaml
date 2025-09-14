@@ -1,0 +1,50 @@
+{{- range $clusterName, $cluster := .Values.kafkaClusters }}
+{{- if and $cluster.enabled $cluster.kafkaUsers }}
+{{- $clusterContext := dict "clusterName" $clusterName "context" $ }}
+{{- range $cluster.kafkaUsers }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: {{ .name }}
+  namespace: {{ $cluster.namespace }}
+  labels:
+    {{- include "strimzi-kafka-multi-cluster.clusterLabels" $clusterContext | nindent 4 }}
+  annotations:
+    {{- include "strimzi-kafka-multi-cluster.annotations" $ | nindent 4 }}
+spec:
+  {{- if .authentication }}
+  authentication:
+    type: {{ .authentication.type }}
+    {{- if .authentication.password }}
+    password:
+      valueFrom:
+        secretKeyRef:
+          name: {{ .authentication.password.secretName }}
+          key: {{ .authentication.password.key }}
+    {{- end }}
+  {{- end }}
+  {{- if .authorization }}
+  authorization:
+    type: {{ .authorization.type }}
+    {{- if .authorization.acls }}
+    acls:
+      {{- include "strimzi-kafka-multi-cluster.aclRules" .authorization.acls | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  {{- if .quotas }}
+  quotas:
+    {{- if .quotas.producerByteRate }}
+    producerByteRate: {{ .quotas.producerByteRate }}
+    {{- end }}
+    {{- if .quotas.consumerByteRate }}
+    consumerByteRate: {{ .quotas.consumerByteRate }}
+    {{- end }}
+    {{- if .quotas.requestPercentage }}
+    requestPercentage: {{ .quotas.requestPercentage }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+

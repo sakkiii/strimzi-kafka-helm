@@ -1,0 +1,115 @@
+{{- range $clusterName, $cluster := .Values.kafkaClusters }}
+{{- if and $cluster.enabled $cluster.kafkaConnect }}
+{{- $clusterContext := dict "clusterName" $clusterName "context" $ }}
+{{- range $cluster.kafkaConnect }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: {{ .name }}
+  namespace: {{ $cluster.namespace }}
+  labels:
+    {{- include "strimzi-kafka-multi-cluster.clusterLabels" $clusterContext | nindent 4 }}
+    strimzi.io/cluster: {{ .name }}
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+    {{- include "strimzi-kafka-multi-cluster.annotations" $ | nindent 4 }}
+spec:
+  {{- if .replicas }}
+  replicas: {{ .replicas }}
+  {{- end }}
+  {{- if .version }}
+  version: {{ .version }}
+  {{- end }}
+  {{- if .resources }}
+  resources:
+    {{- if .resources.requests }}
+    requests:
+      {{- if .resources.requests.memory }}
+      memory: {{ .resources.requests.memory }}
+      {{- end }}
+      {{- if .resources.requests.cpu }}
+      cpu: {{ .resources.requests.cpu }}
+      {{- end }}
+    {{- end }}
+    {{- if .resources.limits }}
+    limits:
+      {{- if .resources.limits.memory }}
+      memory: {{ .resources.limits.memory }}
+      {{- end }}
+      {{- if .resources.limits.cpu }}
+      cpu: {{ .resources.limits.cpu }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+  {{- if .bootstrapServers }}
+  bootstrapServers: {{ .bootstrapServers }}
+  {{- end }}
+  {{- if .rack }}
+  rack:
+    topologyKey: {{ .rack.topologyKey }}
+  {{- end }}
+  {{- if .config }}
+  config:
+    {{- range $key, $value := .config }}
+    {{ $key }}: {{ $value | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if .tls }}
+  tls:
+    {{- if .tls.trustedCertificates }}
+    trustedCertificates:
+      {{- include "strimzi-kafka-multi-cluster.trustedCertificates" .tls.trustedCertificates | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  {{- if .authentication }}
+  authentication:
+    type: {{ .authentication.type }}
+    {{- if .authentication.username }}
+    username: {{ .authentication.username }}
+    {{- end }}
+    {{- if .authentication.passwordSecret }}
+    passwordSecret:
+      secretName: {{ .authentication.passwordSecret.secretName }}
+      password: {{ .authentication.passwordSecret.password }}
+    {{- end }}
+  {{- end }}
+  {{- if .build }}
+  build:
+    {{- if .build.output }}
+    output:
+      type: {{ .build.output.type }}
+      {{- if .build.output.image }}
+      image: {{ .build.output.image }}
+      {{- end }}
+    {{- end }}
+    {{- if .build.plugins }}
+    plugins:
+      {{- include "strimzi-kafka-multi-cluster.connectPlugins" .build.plugins | nindent 6 }}
+    {{- end }}
+  {{- end }}
+  {{- if .metricsConfig }}
+  metricsConfig:
+    type: {{ .metricsConfig.type }}
+    {{- if .metricsConfig.valueFrom }}
+    valueFrom:
+      configMapKeyRef:
+        name: {{ .metricsConfig.valueFrom.configMapKeyRef.name }}
+        key: {{ .metricsConfig.valueFrom.configMapKeyRef.key }}
+    {{- end }}
+  {{- end }}
+  {{- if .template }}
+  template:
+    {{- if .template.pod }}
+    pod:
+      {{- if or .template.pod.tolerations .template.pod.nodeAffinity.enabled }}
+      {{- include "strimzi-kafka-multi-cluster.tolerations" .template.pod.tolerations | nindent 6 }}
+      affinity:
+        {{- include "strimzi-kafka-multi-cluster.nodeAffinity" .template.pod | nindent 8 }}
+      {{- end }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+

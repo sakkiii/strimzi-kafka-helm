@@ -1,0 +1,34 @@
+{{- range $clusterName, $cluster := .Values.kafkaClusters }}
+{{- if and $cluster.enabled $cluster.kafkaTopics }}
+{{- $clusterContext := dict "clusterName" $clusterName "context" $ }}
+{{- range $cluster.kafkaTopics }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: {{ .name }}
+  namespace: {{ $cluster.namespace }}
+  labels:
+    {{- include "strimzi-kafka-multi-cluster.clusterLabels" $clusterContext | nindent 4 }}
+  annotations:
+    {{- include "strimzi-kafka-multi-cluster.annotations" $ | nindent 4 }}
+spec:
+  {{- if .partitions }}
+  partitions: {{ .partitions }}
+  {{- end }}
+  {{- if .replicas }}
+  replicas: {{ .replicas }}
+  {{- end }}
+  {{- if .config }}
+  config:
+    {{- range $key, $value := .config }}
+    {{ $key }}: {{ $value }}
+    {{- end }}
+  {{- end }}
+  {{- if .topicName }}
+  topicName: {{ .topicName }}
+  {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
+

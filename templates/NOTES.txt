@@ -1,0 +1,108 @@
+1. Get the status of your Kafka cluster:
+
+   Cluster: {{ include "strimzi-kafka.clusterName" . }}
+   Namespace: {{ include "strimzi-kafka.namespace" . }}
+   
+   kubectl get kafka {{ include "strimzi-kafka.clusterName" . }} -n {{ include "strimzi-kafka.namespace" . }}
+   {{- range .Values.kafkaCluster.nodePools }}
+   kubectl get kafkanodepool {{ include "strimzi-kafka.nodePoolName" (dict "name" .name "Values" $.Values "Release" $.Release "Chart" $.Chart) }} -n {{ include "strimzi-kafka.namespace" $ }}
+   {{- end }}
+
+2. Check the status of Kafka brokers:
+
+   kubectl get pods -l strimzi.io/cluster={{ include "strimzi-kafka.clusterName" . }} -n {{ include "strimzi-kafka.namespace" . }}
+
+3. Access Kafka from within the cluster:
+
+   Internal bootstrap server:
+   {{ include "strimzi-kafka.clusterName" . }}-kafka-bootstrap.{{ include "strimzi-kafka.namespace" . }}.svc.cluster.local:9093
+   
+   {{- range .Values.kafkaCluster.listeners }}
+   {{- if eq .type "ingress" }}
+   External bootstrap server ({{ .name }}):
+   {{ .configuration.bootstrap.host }}:{{ .port }}
+   {{- end }}
+   {{- end }}
+
+4. Create a Kafka client pod for testing:
+
+   kubectl run kafka-client --restart='Never' --image quay.io/strimzi/kafka:0.44.0-kafka-3.9.0 --rm -it --command -- /bin/bash
+
+5. Test your deployment:
+
+   helm test {{ .Release.Name }}
+
+6. Monitor your Kafka clusters:
+
+{{- if .Values.kafkaCluster.metricsConfig.enabled }}
+   Prometheus metrics are available at:
+   - Kafka metrics: <kafka-pod>:9404/metrics
+   {{- if .Values.kafkaCluster.kafkaExporter.enabled }}
+   - Kafka Exporter metrics: <kafka-exporter-pod>:9308/metrics
+   {{- end }}
+{{- end }}
+
+{{- if .Values.kafkaCluster.cruiseControl.enabled }}
+   Cruise Control UI (if exposed):
+   - Access via port-forward: kubectl port-forward svc/{{ include "strimzi-kafka.clusterName" . }}-cruise-control 9090:9090 -n {{ include "strimzi-kafka.namespace" . }}
+{{- end }}
+
+7. Useful commands for troubleshooting:
+
+   # Check Kafka cluster status
+   kubectl describe kafka <cluster-name> -n <namespace>
+   
+   # Check Kafka broker logs
+   kubectl logs <kafka-pod-name> -n <namespace>
+   
+   # Check Entity Operator logs
+   kubectl logs deployment/<cluster-name>-entity-operator -c topic-operator -n <namespace>
+   kubectl logs deployment/<cluster-name>-entity-operator -c user-operator -n <namespace>
+   
+   # List topics
+   kubectl exec -it <kafka-pod> -n <namespace> -- /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list
+   
+   # Check consumer groups
+   kubectl exec -it <kafka-pod> -n <namespace> -- /opt/kafka/bin/kafka-consumer-groups.sh --bootstrap-server localhost:9092 --list
+
+8. Security Information:
+
+   {{- if .Values.kafkaCluster.authorization }}
+   - Authorization: {{ .Values.kafkaCluster.authorization.type }}
+   {{- if .Values.kafkaCluster.authorization.superUsers }}
+   - Super users: {{ join ", " .Values.kafkaCluster.authorization.superUsers }}
+   {{- end }}
+   {{- end }}
+   
+   {{- if .Values.kafkaUsers }}
+   - Configured users:
+   {{- range .Values.kafkaUsers }}
+     * {{ .name }} ({{ .authentication.type }})
+   {{- end }}
+   {{- end }}
+
+9. Scaling Information:
+
+   {{ include "strimzi-kafka.clusterName" . }}:
+   - Replicas: {{ .Values.kafkaCluster.replicas }}
+   {{- range .Values.kafkaCluster.nodePools }}
+   - Node Pool: {{ .name }} ({{ .replicas }} replicas)
+   {{- if and .template .template.pod .template.pod.resources .template.pod.resources.requests }}
+   - Resources: {{ .template.pod.resources.requests.memory | default "1Gi" }} memory, {{ .template.pod.resources.requests.cpu | default "500m" }} CPU
+   {{- end }}
+   {{- end }}
+   {{- if .Values.kafkaCluster.cruiseControl.enabled }}
+   - Cruise Control enabled for auto-rebalancing
+   {{- end }}
+
+{{- if .Values.global.commonAnnotations }}
+
+10. Additional Notes:
+    This deployment includes custom annotations:
+{{- range $key, $value := .Values.global.commonAnnotations }}
+    - {{ $key }}: {{ $value }}
+{{- end }}
+{{- end }}
+
+For more information about Strimzi Kafka, visit: https://strimzi.io/docs/
+

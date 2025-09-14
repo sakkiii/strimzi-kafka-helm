@@ -1,0 +1,281 @@
+{{- if .Values.kafkaCluster.enabled }}
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: {{ include "strimzi-kafka.clusterName" . }}
+  namespace: {{ include "strimzi-kafka.namespace" . }}
+  labels:
+    {{- include "strimzi-kafka.labels" . | nindent 4 }}
+    strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" . }}
+    {{- with .Values.global.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled  # KRaft mode is mandatory - ZooKeeper is not supported
+    oneagent.dynatrace.com/inject: "false"
+    {{- with .Values.global.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  kafka:
+    version: {{ .Values.kafkaCluster.version }}
+    replicas: {{ .Values.kafkaCluster.replicas }}
+    template:
+      pod:
+        metadata:
+          annotations:
+            oneagent.dynatrace.com/inject: "false"
+            {{- with .Values.global.commonAnnotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- if .Values.kafkaCluster.nodePools }}
+        {{- $nodePool := index .Values.kafkaCluster.nodePools 0 }}
+        {{- $componentAffinity := dict }}
+        {{- $componentTolerations := dict }}
+        {{- if and $nodePool.template $nodePool.template.pod }}
+        {{- $componentAffinity = $nodePool.template.pod.affinity | default dict }}
+        {{- $componentTolerations = $nodePool.template.pod.tolerations | default dict }}
+        {{- end }}
+        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" $componentAffinity "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" $componentTolerations "context" .) | nindent 8 }}
+        {{- end }}
+    {{- if .Values.kafkaCluster.rack }}
+    rack:
+      topologyKey: {{ .Values.kafkaCluster.rack.topologyKey }}
+    {{- end }}
+    {{- if .Values.kafkaCluster.authorization }}
+    authorization:
+      type: {{ .Values.kafkaCluster.authorization.type }}
+      {{- if .Values.kafkaCluster.authorization.superUsers }}
+      superUsers:
+        {{- range .Values.kafkaCluster.authorization.superUsers }}
+        - {{ . | quote }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    listeners:
+      {{- range .Values.kafkaCluster.listeners }}
+      - name: {{ .name }}
+        port: {{ .port }}
+        type: {{ .type }}
+        tls: {{ .tls | default true }}
+        {{- if .authentication }}
+        authentication:
+          type: {{ .authentication.type }}
+        {{- end }}
+        {{- if .configuration }}
+        configuration:
+          {{- if eq .type "ingress" }}
+          {{- if .configuration.class }}
+          class: {{ .configuration.class }}
+          {{- end }}
+          {{- if .configuration.bootstrap }}
+          bootstrap:
+            host: {{ .configuration.bootstrap.host }}
+            {{- if .configuration.bootstrap.annotations }}
+            annotations:
+              {{- toYaml .configuration.bootstrap.annotations | nindent 14 }}
+            {{- end }}
+          {{- end }}
+          {{- if .configuration.brokers }}
+          brokers:
+            {{- $listener := . }}
+            {{- $maxBrokers := 10 }}
+            {{- $hpaEnabled := $.Values.hpa.enabled }}
+            {{- $replicas := $.Values.kafkaCluster.replicas }}
+            {{- if $hpaEnabled }}
+              {{- $maxReplicas := $.Values.hpa.maxReplicas }}
+              {{- range $i := until (int $maxReplicas) }}
+            - broker: {{ $i }}
+              host: {{ $listener.configuration.brokers.hostTemplate | replace "{id}" (toString $i) }}
+              {{- if $listener.configuration.brokers.annotations }}
+              annotations:
+                {{- range $key, $value := $listener.configuration.brokers.annotations }}
+                {{ $key }}: {{ $value | replace "{id}" (toString $i) | quote }}
+                {{- end }}
+              {{- end }}
+              {{- end }}
+            {{- else }}
+              {{- range $i := until (int $replicas) }}
+            - broker: {{ $i }}
+              host: {{ $listener.configuration.brokers.hostTemplate | replace "{id}" (toString $i) }}
+              {{- if $listener.configuration.brokers.annotations }}
+              annotations:
+                {{- range $key, $value := $listener.configuration.brokers.annotations }}
+                {{ $key }}: {{ $value | replace "{id}" (toString $i) | quote }}
+                {{- end }}
+              {{- end }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+          {{- if .configuration.tls }}
+          {{- if .configuration.tls.secretName }}
+          bootstrap:
+            secretName: {{ include "strimzi-kafka.secretName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "secretName" .configuration.tls.secretName) }}
+          {{- end }}
+          {{- if .configuration.tls.brokerSecretName }}
+          brokerCertChainAndKey:
+            secretName: {{ include "strimzi-kafka.secretName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "secretName" .configuration.tls.brokerSecretName) }}
+            certificate: {{ .configuration.tls.brokerCertificate | default "tls.crt" }}
+            key: {{ .configuration.tls.brokerKey | default "tls.key" }}
+          {{- end }}
+          {{- end }}
+          {{- else if eq .type "loadbalancer" }}
+          {{- if .configuration.loadBalancerSourceRanges }}
+          loadBalancerSourceRanges:
+            {{- toYaml .configuration.loadBalancerSourceRanges | nindent 12 }}
+          {{- end }}
+          {{- if .configuration.annotations }}
+          annotations:
+            {{- toYaml .configuration.annotations | nindent 12 }}
+          {{- end }}
+          {{- else if eq .type "nodeport" }}
+          {{- if .configuration.nodePort }}
+          nodePort: {{ .configuration.nodePort }}
+          {{- end }}
+          {{- else }}
+          {{- toYaml .configuration | nindent 10 }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    config:
+      {{- toYaml .Values.kafkaCluster.config | nindent 6 }}
+    {{- if .Values.kafkaCluster.metricsConfig.enabled }}
+    metricsConfig:
+      type: {{ .Values.kafkaCluster.metricsConfig.type }}
+      valueFrom:
+        configMapKeyRef:
+          name: {{ .Values.kafkaCluster.metricsConfig.configMapName }}
+          key: {{ .Values.kafkaCluster.metricsConfig.configMapKey }}
+    {{- end }}
+  {{- if .Values.kafkaCluster.entityOperator.enabled }}
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+    template:
+      pod:
+        {{- include "strimzi-kafka.nodeSelector" (dict "global" .Values.global.nodeSelector "component" .Values.kafkaCluster.entityOperator.template.pod.nodeSelector "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.entityOperator.template.pod.affinity "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.entityOperator.template.pod.tolerations "context" .) | nindent 8 }}
+  {{- end }}
+  {{- if .Values.kafkaCluster.kafkaExporter.enabled }}
+  kafkaExporter:
+    resources:
+      requests:
+        cpu: {{ .Values.kafkaCluster.kafkaExporter.resources.requests.cpu }}
+        memory: {{ .Values.kafkaCluster.kafkaExporter.resources.requests.memory }}
+      limits:
+        cpu: {{ .Values.kafkaCluster.kafkaExporter.resources.limits.cpu }}
+        memory: {{ .Values.kafkaCluster.kafkaExporter.resources.limits.memory }}
+    topicRegex: {{ .Values.kafkaCluster.kafkaExporter.topicRegex | quote }}
+    groupRegex: {{ .Values.kafkaCluster.kafkaExporter.groupRegex | quote }}
+    template:
+      pod:
+        {{- include "strimzi-kafka.nodeSelector" (dict "global" .Values.global.nodeSelector "component" .Values.kafkaCluster.kafkaExporter.template.pod.nodeSelector "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.kafkaExporter.template.pod.affinity "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.kafkaExporter.template.pod.tolerations "context" .) | nindent 8 }}
+  {{- end }}
+  {{- if .Values.kafkaCluster.cruiseControl.enabled }}
+  cruiseControl:
+    {{- if .Values.kafkaCluster.cruiseControl.autoRebalance.enabled }}
+    autoRebalance:
+      {{- range .Values.kafkaCluster.cruiseControl.autoRebalance.modes }}
+      - mode: {{ .mode }}
+        template:
+          name: {{ include "strimzi-kafka.templateName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "templateName" .templateName) }}
+      {{- end }}
+    {{- end }}
+    resources:
+      requests:
+        memory: {{ .Values.kafkaCluster.cruiseControl.resources.requests.memory }}
+        cpu: {{ .Values.kafkaCluster.cruiseControl.resources.requests.cpu }}
+      limits:
+        memory: {{ .Values.kafkaCluster.cruiseControl.resources.limits.memory }}
+        cpu: {{ .Values.kafkaCluster.cruiseControl.resources.limits.cpu }}
+    template:
+      pod:
+        {{- include "strimzi-kafka.nodeSelector" (dict "global" .Values.global.nodeSelector "component" .Values.kafkaCluster.cruiseControl.template.pod.nodeSelector "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.cruiseControl.template.pod.affinity "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.cruiseControl.template.pod.tolerations "context" .) | nindent 8 }}
+    {{- if .Values.kafkaCluster.cruiseControl.metricsConfig.enabled }}
+    metricsConfig:
+      type: {{ .Values.kafkaCluster.cruiseControl.metricsConfig.type }}
+      valueFrom:
+        configMapKeyRef:
+          name: {{ .Values.kafkaCluster.cruiseControl.metricsConfig.configMapName }}
+          key: {{ .Values.kafkaCluster.cruiseControl.metricsConfig.configMapKey }}
+    {{- end }}
+    config:
+      {{- toYaml .Values.kafkaCluster.cruiseControl.config | nindent 6 }}
+  {{- end }}
+---
+{{- range .Values.kafkaCluster.nodePools }}
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaNodePool
+metadata:
+  name: {{ include "strimzi-kafka.nodePoolName" (dict "name" .name "Values" $.Values "Release" $.Release "Chart" $.Chart) }}
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
+  labels:
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
+    {{- with $.Values.global.commonLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  annotations:
+    strimzi.io/next-node-ids: "[0-199]" # Example, adjust as needed
+    {{- with $.Values.global.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  replicas: {{ .replicas }}
+  roles:
+    {{- range .roles }}
+    - {{ . }}
+    {{- end }}
+  resources:
+    requests:
+      memory: {{ .resources.requests.memory }}
+      cpu: {{ .resources.requests.cpu }}
+    limits:
+      memory: {{ .resources.limits.memory }}
+      cpu: {{ .resources.limits.cpu }}
+  {{- if .jvmOptions }}
+  jvmOptions:
+    {{- if .jvmOptions.xms }}
+    -Xms: {{ .jvmOptions.xms | quote }}
+    {{- end }}
+    {{- if .jvmOptions.xmx }}
+    -Xmx: {{ .jvmOptions.xmx | quote }}
+    {{- end }}
+  {{- end }}
+  {{- if .storage }}
+  storage:
+    type: {{ .storage.type }}
+    volumes:
+      {{- range .storage.volumes }}
+      - id: {{ .id }}
+        type: {{ .type }}
+        size: {{ .size }}
+        deleteClaim: {{ .deleteClaim }}
+        kraftMetadata: {{ .kraftMetadata }}
+        {{- if .storageClass }}
+        class: {{ .storageClass }}
+        {{- end }}
+      {{- end }}
+  {{- end }}
+  {{- if .template }}
+  template:
+    {{- if .template.pod }}
+    pod:
+      {{- if .template.pod.terminationGracePeriodSeconds }}
+      terminationGracePeriodSeconds: {{ .template.pod.terminationGracePeriodSeconds }}
+      {{- end }}
+      {{- include "strimzi-kafka.nodeSelector" (dict "global" $.Values.global.nodeSelector "component" (.template.pod.nodeSelector | default dict) "context" $) | nindent 6 }}
+      {{- include "strimzi-kafka.affinity" (dict "global" $.Values.global.affinity "component" (.template.pod.affinity | default dict) "context" $) | nindent 6 }}
+      {{- include "strimzi-kafka.tolerations" (dict "global" $.Values.global.tolerations "component" (.template.pod.tolerations | default dict) "context" $) | nindent 6 }}
+    {{- end }}
+  {{- end }}
+---
+{{- end }}
+{{- end }}
