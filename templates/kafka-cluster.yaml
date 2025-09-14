@@ -1,4 +1,8 @@
 {{- if .Values.kafkaCluster.enabled }}
+{{/*
+Note: strimzi.io/node-pools: enabled annotation is automatically included below
+when KafkaNodePool resources are used (see annotations section)
+*/}}
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
@@ -223,7 +227,24 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
   annotations:
-    strimzi.io/next-node-ids: "[0-199]" # Example, adjust as needed
+    {{- if .nextNodeIds }}
+    strimzi.io/next-node-ids: "{{ .nextNodeIds }}"
+    {{- else }}
+    {{- /* Provide safe default node ID ranges based on pool index and roles */}}
+    {{- $poolIndex := 0 }}
+    {{- range $i, $pool := $.Values.kafkaCluster.nodePools }}
+      {{- if eq $pool.name .name }}
+        {{- $poolIndex = $i }}
+      {{- end }}
+    {{- end }}
+    {{- if has "controller" .roles }}
+    strimzi.io/next-node-ids: "[{{ mul $poolIndex 100 }}-{{ add (mul $poolIndex 100) 99 }}]"  # Controller pool: {{ $poolIndex }}00-{{ $poolIndex }}99
+    {{- else if has "broker" .roles }}
+    strimzi.io/next-node-ids: "[{{ add (mul $poolIndex 100) 1000 }}-{{ add (mul $poolIndex 100) 1099 }}]"  # Broker pool: {{ add (mul $poolIndex 100) 1000 }}-{{ add (mul $poolIndex 100) 1099 }}
+    {{- else }}
+    strimzi.io/next-node-ids: "[{{ add (mul $poolIndex 100) 2000 }}-{{ add (mul $poolIndex 100) 2099 }}]"  # Dual-role pool: {{ add (mul $poolIndex 100) 2000 }}-{{ add (mul $poolIndex 100) 2099 }}
+    {{- end }}
+    {{- end }}
     {{- with $.Values.global.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

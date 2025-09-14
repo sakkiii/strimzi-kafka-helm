@@ -757,33 +757,83 @@ kafkaCluster:
 
 ### Horizontal Pod Autoscaler (HPA)
 
-Enable automatic scaling based on CPU/memory metrics:
+**⚠️ CRITICAL LIMITATION**: HPA **MUST NOT** target Kafka broker StatefulSets managed by the Strimzi operator.
+
+#### ❌ **What HPA CANNOT Do**
+- **Cannot scale Kafka brokers**: Broker scaling is exclusively managed by the Strimzi operator
+- **Cannot target StatefulSets**: HPA cannot manage StatefulSets created by the operator
+- **Cannot handle data rebalancing**: Scaling brokers requires data rebalancing coordination
+
+#### ✅ **What HPA CAN Do**
+HPA can only be used for **ancillary components** not managed by the Strimzi operator:
 
 ```yaml
-hpa:
-  enabled: true
-  minReplicas: 3
+# ✅ VALID: HPA for Kafka Connect (separate deployment)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kafka-connect-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-connect-cluster-connect  # Kafka Connect deployment
+  minReplicas: 2
   maxReplicas: 10
-  targetCPUUtilizationPercentage: 70
-  targetMemoryUtilizationPercentage: 80
-  scaleUpPeriodSeconds: 300
-  scaleDownPeriodSeconds: 300
   metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+
+# ✅ VALID: HPA for MirrorMaker2 (separate deployment)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: mirrormaker2-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: my-mm2-cluster-mirrormaker2
+  minReplicas: 1
+  maxReplicas: 5
 ```
 
-When HPA is enabled, external listener brokers are automatically generated up to `maxReplicas`.
+#### 🔧 **Proper Broker Scaling**
+To scale Kafka brokers, update the `replicas` configuration and apply Helm upgrade:
+
+```yaml
+# values-prod.yaml
+kafkaCluster:
+  replicas: 5  # Scale from 3 to 5 brokers
+
+# Apply the change
+helm upgrade my-kafka . -f values-prod.yaml
+```
+
+**The Strimzi operator will:**
+1. Create new broker pods
+2. Update cluster metadata
+3. Trigger automatic rebalancing (if Cruise Control is enabled)
+4. Ensure data distribution across new brokers
+
+#### 📊 **Monitoring Broker Capacity**
+Instead of HPA, monitor these metrics for manual scaling decisions:
+
+```bash
+# Monitor broker CPU/Memory usage
+kubectl top pods -l strimzi.io/cluster=my-kafka
+
+# Check disk usage per broker
+kubectl exec my-kafka-dual-role-0 -c kafka -- df -h /var/lib/kafka
+
+# Monitor partition distribution
+kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --describe --under-replicated-partitions
+```
 
 ### Metrics Configuration
 
@@ -866,33 +916,1124 @@ kafkaConnects:
               url: "https://github.com/Aiven-Open/opensearch-connector-for-apache-kafka/releases/download/v3.1.1/opensearch-connector-for-apache-kafka-3.1.1.zip"
 ```
 
-### Rebalancing Configuration
+## 🎯 Cruise Control Configuration
 
-Configure automatic rebalancing with Cruise Control:
+Cruise Control provides intelligent rebalancing and optimization for Kafka clusters. This section covers goal templates aligned with Strimzi defaults and operational guidance.
 
+### Default Goal Templates
+
+#### Production Rebalancing Goals (Recommended)
 ```yaml
 kafkaCluster:
   cruiseControl:
     enabled: true
-    autoRebalance:
-      enabled: true
-      modes:
-        - mode: add-brokers
-          templateName: "my-rebalance-template"
-        - mode: remove-brokers
-          templateName: "my-rebalance-template"
+    config:
+      # Strimzi default goals - optimized for production stability
+      default.goals: >
+        RackAwareGoal,
+        ReplicaCapacityGoal,
+        DiskCapacityGoal,
+        NetworkInboundCapacityGoal,
+        NetworkOutboundCapacityGoal,
+        CpuCapacityGoal,
+        ReplicaDistributionGoal,
+        PotentialNwOutGoal,
+        DiskUsageDistributionGoal,
+        NetworkInboundUsageDistributionGoal,
+        NetworkOutboundUsageDistributionGoal,
+        CpuUsageDistributionGoal,
+        LeaderReplicaDistributionGoal,
+        LeaderBytesInDistributionGoal
+      
+      # Hard goals that cannot be violated
+      hard.goals: >
+        RackAwareGoal,
+        ReplicaCapacityGoal,
+        DiskCapacityGoal,
+        NetworkInboundCapacityGoal,
+        NetworkOutboundCapacityGoal,
+        CpuCapacityGoal
+      
+      # Self-healing configuration
+      self.healing.goals: >
+        RackAwareGoal,
+        ReplicaCapacityGoal,
+        DiskCapacityGoal
+      
+      # Anomaly detection
+      anomaly.detection.goals: >
+        RackAwareGoal,
+        ReplicaCapacityGoal,
+        DiskCapacityGoal,
+        NetworkInboundCapacityGoal,
+        NetworkOutboundCapacityGoal,
+        CpuCapacityGoal
 
+# KafkaRebalance templates for different scenarios
 kafkaRebalances:
-  - name: my-rebalance-template
+  # Full cluster rebalance (use sparingly)
+  - name: "full-rebalance"
+    mode: "full"
     goals:
+      - RackAwareGoal
+      - ReplicaCapacityGoal
+      - DiskCapacityGoal
+      - NetworkInboundCapacityGoal
+      - NetworkOutboundCapacityGoal
+      - CpuCapacityGoal
+      - ReplicaDistributionGoal
+      - PotentialNwOutGoal
+      - DiskUsageDistributionGoal
+      - NetworkInboundUsageDistributionGoal
+      - NetworkOutboundUsageDistributionGoal
+      - CpuUsageDistributionGoal
+      - LeaderReplicaDistributionGoal
+      - LeaderBytesInDistributionGoal
+  
+  # Add brokers rebalance (when scaling up)
+  - name: "add-brokers-rebalance"
+    mode: "add-brokers"
+    goals:
+      - RackAwareGoal
       - ReplicaCapacityGoal
       - DiskCapacityGoal
       - ReplicaDistributionGoal
       - DiskUsageDistributionGoal
-      - TopicReplicaDistributionGoal
-      - LeaderReplicaDistributionGoal
-      - LeaderBytesInDistributionGoal
+  
+  # Remove brokers rebalance (when scaling down)
+  - name: "remove-brokers-rebalance"
+    mode: "remove-brokers"
+    goals:
+      - RackAwareGoal
+      - ReplicaCapacityGoal
+      - DiskCapacityGoal
+      - ReplicaDistributionGoal
 ```
+
+#### Conservative Rebalancing Goals (Minimal Impact)
+```yaml
+kafkaCluster:
+  cruiseControl:
+    enabled: true
+    config:
+      # Conservative goals for minimal cluster disruption
+      default.goals: >
+        RackAwareGoal,
+        ReplicaCapacityGoal,
+        DiskCapacityGoal,
+        ReplicaDistributionGoal
+      
+      hard.goals: >
+        RackAwareGoal,
+        ReplicaCapacityGoal,
+        DiskCapacityGoal
+```
+
+### Operational Guidance
+
+#### When to Disable Cruise Control
+
+**⚠️ CRITICAL**: Disable Cruise Control during these disruptive operations:
+
+1. **Kafka Version Upgrades**
+   ```yaml
+   kafkaCluster:
+     cruiseControl:
+       enabled: false  # Disable during upgrade
+   ```
+
+2. **Broker Configuration Changes**
+   - JVM settings modifications
+   - Storage configuration changes
+   - Network configuration updates
+
+3. **Cluster Maintenance**
+   - Node maintenance windows
+   - Kubernetes cluster upgrades
+   - Storage system maintenance
+
+4. **Emergency Situations**
+   - Broker failures requiring immediate attention
+   - Network partitions or connectivity issues
+   - Data corruption incidents
+
+#### Re-enabling After Maintenance
+
+```bash
+# 1. Ensure all brokers are healthy
+kubectl get pods -l strimzi.io/cluster=my-kafka
+
+# 2. Check for under-replicated partitions
+kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-topics.sh \
+  --bootstrap-server localhost:9092 --describe --under-replicated-partitions
+
+# 3. Re-enable Cruise Control
+helm upgrade my-kafka . -f values-prod.yaml  # With cruiseControl.enabled: true
+
+# 4. Wait for Cruise Control to start
+kubectl get pods -l strimzi.io/name=my-kafka-cruise-control
+```
+
+### Goal Explanations
+
+| Goal | Purpose | Impact | Recommended Use |
+|------|---------|--------|-----------------|
+| **RackAwareGoal** | Ensures replicas are distributed across racks/AZs | High | Always include (hard goal) |
+| **ReplicaCapacityGoal** | Prevents brokers from exceeding replica limits | High | Always include (hard goal) |
+| **DiskCapacityGoal** | Prevents disk space exhaustion | High | Always include (hard goal) |
+| **NetworkInboundCapacityGoal** | Balances network inbound traffic | Medium | Production clusters |
+| **NetworkOutboundCapacityGoal** | Balances network outbound traffic | Medium | Production clusters |
+| **CpuCapacityGoal** | Balances CPU utilization | Medium | Production clusters |
+| **ReplicaDistributionGoal** | Evenly distributes replicas | Low | General optimization |
+| **LeaderReplicaDistributionGoal** | Evenly distributes leader replicas | Low | Performance optimization |
+| **DiskUsageDistributionGoal** | Balances disk usage | Low | Storage optimization |
+
+### Monitoring Cruise Control
+
+#### Key Metrics to Monitor
+
+```bash
+# Cruise Control status
+kubectl get pods -l strimzi.io/name=my-kafka-cruise-control
+
+# Active rebalances
+kubectl get kafkarebalance
+
+# Cruise Control logs
+kubectl logs deployment/my-kafka-cruise-control
+
+# Anomaly detector status
+kubectl exec my-kafka-cruise-control-xxx -- curl -s localhost:9090/kafkacruisecontrol/state
+```
+
+#### Prometheus Metrics (if enabled)
+
+Monitor these Cruise Control metrics:
+- `kafka_cruisecontrol_anomaly_detector_mean_time_between_anomalies_ms`
+- `kafka_cruisecontrol_executor_execution_stopped`
+- `kafka_cruisecontrol_monitor_sampling_rate`
+
+### Troubleshooting
+
+#### Common Issues
+
+1. **Cruise Control Pod Not Starting**
+   ```bash
+   # Check logs for configuration errors
+   kubectl logs deployment/my-kafka-cruise-control
+   
+   # Verify Kafka cluster is healthy
+   kubectl get kafka my-kafka -o yaml
+   ```
+
+2. **Rebalance Stuck in Pending State**
+   ```bash
+   # Check rebalance status
+   kubectl describe kafkarebalance my-rebalance
+   
+   # Check Cruise Control logs
+   kubectl logs deployment/my-kafka-cruise-control | grep -i rebalance
+   ```
+
+3. **Goals Cannot Be Satisfied**
+   ```bash
+   # Review goal configuration
+   kubectl get kafka my-kafka -o yaml | grep -A 20 cruiseControl
+   
+   # Check cluster capacity
+   kubectl exec my-kafka-cruise-control-xxx -- curl -s \
+     "localhost:9090/kafkacruisecontrol/load?json=true"
+   ```
+
+### References
+
+- [Cruise Control Goals Documentation](https://strimzi.io/docs/operators/latest/configuring#proc-cruise-control-goals-str)
+- [Rebalancing Documentation](https://strimzi.io/docs/operators/latest/configuring#proc-generating-optimization-proposals-str)
+- [Cruise Control Configuration Reference](https://strimzi.io/docs/operators/latest/configuring#type-CruiseControlSpec-reference)
+
+## 👤 KafkaUser Resources & ACL Examples
+
+This section provides comprehensive examples of KafkaUser resources with SCRAM authentication and role-based ACL configurations.
+
+### Basic KafkaUser with SCRAM Authentication
+
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: app-producer
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Producer permissions for specific topics
+      - resource:
+          type: topic
+          name: orders
+        operations: [Write, Describe]
+      - resource:
+          type: topic
+          name: payments
+        operations: [Write, Describe]
+      
+      # Schema Registry permissions (if using Confluent Schema Registry)
+      - resource:
+          type: topic
+          name: _schemas
+        operations: [Read, Write, Describe]
+      
+      # Consumer group for monitoring/health checks
+      - resource:
+          type: group
+          name: app-producer-monitoring
+        operations: [Read]
+```
+
+### Consumer Application User
+
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: app-consumer
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Consumer permissions for specific topics
+      - resource:
+          type: topic
+          name: orders
+        operations: [Read, Describe]
+      - resource:
+          type: topic
+          name: payments
+        operations: [Read, Describe]
+      
+      # Consumer group permissions
+      - resource:
+          type: group
+          name: order-processing-service
+        operations: [Read]
+      - resource:
+          type: group
+          name: payment-processing-service
+        operations: [Read]
+      
+      # Offset management
+      - resource:
+          type: topic
+          name: __consumer_offsets
+        operations: [Read]
+```
+
+### Admin User (Full Cluster Access)
+
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: kafka-admin
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Full cluster administration
+      - resource:
+          type: cluster
+        operations: [All]
+      
+      # All topic operations
+      - resource:
+          type: topic
+          name: "*"
+        operations: [All]
+      
+      # All consumer group operations
+      - resource:
+          type: group
+          name: "*"
+        operations: [All]
+      
+      # Transaction operations (for exactly-once semantics)
+      - resource:
+          type: transactionalId
+          name: "*"
+        operations: [All]
+```
+
+### Role-Based ACL Bundles
+
+#### Data Engineering Role
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: data-engineer
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Read access to all data topics
+      - resource:
+          type: topic
+          name: data.*
+          patternType: prefix
+        operations: [Read, Describe]
+      
+      # Write access to analytics topics
+      - resource:
+          type: topic
+          name: analytics.*
+          patternType: prefix
+        operations: [Write, Create, Describe]
+      
+      # Consumer groups for data processing
+      - resource:
+          type: group
+          name: data-engineering.*
+          patternType: prefix
+        operations: [Read]
+      
+      # Schema Registry access
+      - resource:
+          type: topic
+          name: _schemas
+        operations: [Read, Write, Describe]
+```
+
+#### Monitoring Role
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: monitoring-user
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Read-only access to all topics for monitoring
+      - resource:
+          type: topic
+          name: "*"
+        operations: [Read, Describe]
+      
+      # Consumer groups for monitoring tools
+      - resource:
+          type: group
+          name: monitoring.*
+          patternType: prefix
+        operations: [Read]
+      
+      # Cluster metadata access
+      - resource:
+          type: cluster
+        operations: [Describe]
+```
+
+#### Development Role (Limited Access)
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: developer
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Access only to development topics
+      - resource:
+          type: topic
+          name: dev.*
+          patternType: prefix
+        operations: [Read, Write, Create, Describe]
+      
+      # Test topics access
+      - resource:
+          type: topic
+          name: test.*
+          patternType: prefix
+        operations: [Read, Write, Create, Delete, Describe]
+      
+      # Development consumer groups
+      - resource:
+          type: group
+          name: dev.*
+          patternType: prefix
+        operations: [Read, Write, Create, Delete]
+      
+      # Limited cluster access
+      - resource:
+          type: cluster
+        operations: [Describe]
+```
+
+### Prefix Pattern Implications
+
+#### ⚠️ **Important Considerations for Prefix Patterns**
+
+**Prefix patterns (`patternType: prefix`) have significant security implications:**
+
+1. **Overly Broad Access**
+   ```yaml
+   # ❌ DANGEROUS: Grants access to ALL topics starting with "app"
+   - resource:
+       type: topic
+       name: app
+       patternType: prefix
+     operations: [Read, Write]
+   
+   # ✅ BETTER: More specific prefix
+   - resource:
+       type: topic
+       name: app.orders.
+       patternType: prefix
+     operations: [Read, Write]
+   ```
+
+2. **Unintended Topic Access**
+   ```yaml
+   # ❌ PROBLEM: "user" prefix matches "user-data", "users", "user-profiles", etc.
+   - resource:
+       type: topic
+       name: user
+       patternType: prefix
+   
+   # ✅ SOLUTION: Use specific naming with delimiters
+   - resource:
+       type: topic
+       name: user.
+       patternType: prefix  # Matches "user.profile", "user.settings", etc.
+   ```
+
+3. **Best Practices for Prefix Patterns**
+   - Use clear naming conventions with delimiters (`.`, `-`, `_`)
+   - Test prefix patterns in development environments
+   - Regularly audit ACL permissions
+   - Prefer specific topic names over broad prefixes when possible
+
+### SCRAM Secret Management
+
+#### Retrieving SCRAM Credentials
+
+```bash
+# Get the generated password for a KafkaUser
+kubectl get secret app-producer -o jsonpath='{.data.password}' | base64 -d
+
+# Get the SASL JAAS configuration
+kubectl get secret app-producer -o jsonpath='{.data.sasl\.jaas\.config}' | base64 -d
+
+# Complete connection details
+kubectl get secret app-producer -o yaml
+```
+
+#### Using SCRAM Credentials in Applications
+
+**Java Application Example:**
+```properties
+# application.properties
+bootstrap.servers=my-kafka-kafka-bootstrap:9092
+security.protocol=SASL_SSL
+sasl.mechanism=SCRAM-SHA-512
+sasl.jaas.config=org.apache.kafka.common.security.scram.ScramLoginModule required \
+  username="app-producer" \
+  password="<password-from-secret>";
+ssl.truststore.location=/path/to/truststore.jks
+ssl.truststore.password=<truststore-password>
+```
+
+**Python Application Example:**
+```python
+from kafka import KafkaProducer
+import ssl
+
+producer = KafkaProducer(
+    bootstrap_servers=['my-kafka-kafka-bootstrap:9092'],
+    security_protocol='SASL_SSL',
+    sasl_mechanism='SCRAM-SHA-512',
+    sasl_plain_username='app-producer',
+    sasl_plain_password='<password-from-secret>',
+    ssl_context=ssl.create_default_context(),
+    ssl_check_hostname=False,
+    ssl_cafile='/path/to/ca.crt'
+)
+```
+
+### ACL Operations Reference
+
+| Operation | Description | Typical Use Case |
+|-----------|-------------|------------------|
+| **Read** | Read messages from topics | Consumers |
+| **Write** | Write messages to topics | Producers |
+| **Create** | Create topics/consumer groups | Admin operations |
+| **Delete** | Delete topics/consumer groups | Admin operations |
+| **Alter** | Modify topic/group configurations | Admin operations |
+| **Describe** | Get metadata about resources | Monitoring, clients |
+| **ClusterAction** | Cluster-level operations | Admin operations |
+| **All** | All operations | Full admin access |
+
+### Least Privilege Examples
+
+#### Microservice Producer (Minimal Permissions)
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: order-service-producer
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Only write to order events topic
+      - resource:
+          type: topic
+          name: order.events
+        operations: [Write, Describe]
+      
+      # Transactional ID for exactly-once semantics
+      - resource:
+          type: transactionalId
+          name: order-service-tx
+        operations: [Write, Describe]
+```
+
+#### Microservice Consumer (Minimal Permissions)
+```yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaUser
+metadata:
+  name: notification-service-consumer
+  labels:
+    strimzi.io/cluster: my-kafka
+spec:
+  authentication:
+    type: scram-sha-512
+  authorization:
+    type: simple
+    acls:
+      # Only read from order events
+      - resource:
+          type: topic
+          name: order.events
+        operations: [Read, Describe]
+      
+      # Specific consumer group
+      - resource:
+          type: group
+          name: notification-service
+        operations: [Read]
+```
+
+### Troubleshooting ACLs
+
+#### Common ACL Issues
+
+1. **Access Denied Errors**
+   ```bash
+   # Check user's ACLs
+   kubectl describe kafkauser app-producer
+   
+   # Verify topic exists and user has access
+   kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-acls.sh \
+     --bootstrap-server localhost:9092 \
+     --list --principal User:app-producer
+   ```
+
+2. **Consumer Group Authorization Failures**
+   ```bash
+   # Verify consumer group ACLs
+   kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-consumer-groups.sh \
+     --bootstrap-server localhost:9092 --list
+   ```
+
+3. **Testing ACL Permissions**
+   ```bash
+   # Test producer permissions
+   kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-console-producer.sh \
+     --bootstrap-server localhost:9092 \
+     --topic test-topic \
+     --producer.config /tmp/client.properties
+   
+   # Test consumer permissions
+   kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-console-consumer.sh \
+     --bootstrap-server localhost:9092 \
+     --topic test-topic \
+     --consumer.config /tmp/client.properties \
+     --from-beginning
+   ```
+
+### References
+
+- [KafkaUser Configuration Reference](https://strimzi.io/docs/operators/latest/configuring#type-KafkaUser-reference)
+- [ACL Authorization Reference](https://strimzi.io/docs/operators/latest/configuring#type-AclRule-reference)
+- [SCRAM Authentication](https://strimzi.io/docs/operators/latest/configuring#type-KafkaUserScramSha512ClientAuthentication-reference)
+
+## 🔐 Certificate Management: Cert-Manager vs Strimzi CA
+
+This section provides guidance on choosing between cert-manager and Strimzi's built-in Certificate Authority (CA) for TLS certificate management, including rotation flows and environment-specific recommendations.
+
+### Comparison Matrix
+
+| Feature | Strimzi CA | Cert-Manager | Recommendation |
+|---------|------------|--------------|----------------|
+| **Setup Complexity** | Simple (built-in) | Moderate (external dependency) | Strimzi CA for simple setups |
+| **Certificate Rotation** | Automatic | Automatic | Both support auto-rotation |
+| **External Trust** | Manual trust distribution | Industry-standard CAs | Cert-Manager for external clients |
+| **Multi-Cluster** | Per-cluster CA | Centralized management | Cert-Manager for multi-cluster |
+| **Compliance** | Self-signed certificates | Trusted CA certificates | Cert-Manager for compliance |
+| **Operational Overhead** | Low | Medium | Strimzi CA for internal-only |
+| **Client Configuration** | Custom truststore required | Standard CA trust | Cert-Manager for ease of use |
+
+### Strimzi CA Configuration (Default)
+
+#### Basic Strimzi CA Setup
+```yaml
+kafkaCluster:
+  listeners:
+    - name: "tls"
+      port: 9093
+      type: internal
+      tls: true
+      authentication:
+        type: tls
+      # Uses Strimzi-generated CA by default
+
+  # Optional: Customize CA certificate validity
+  clusterCa:
+    renewalDays: 30        # Renew 30 days before expiration
+    validityDays: 365      # Certificate valid for 1 year
+    generateCertificateAuthority: true
+  
+  clientsCa:
+    renewalDays: 30
+    validityDays: 365
+    generateCertificateAuthority: true
+```
+
+#### Strimzi CA Certificate Rotation
+
+**Automatic Rotation (Recommended):**
+```yaml
+kafkaCluster:
+  clusterCa:
+    generateCertificateAuthority: true
+    renewalDays: 30
+    validityDays: 365
+    # Automatic rotation enabled by default
+  
+  clientsCa:
+    generateCertificateAuthority: true
+    renewalDays: 30
+    validityDays: 365
+```
+
+**Manual Rotation Process:**
+```bash
+# 1. Check current certificate status
+kubectl get secret my-kafka-cluster-ca-cert -o yaml
+
+# 2. Trigger manual rotation (if needed)
+kubectl annotate kafka my-kafka strimzi.io/force-renew=true
+
+# 3. Monitor rotation progress
+kubectl get kafka my-kafka -o yaml | grep -A 10 status
+
+# 4. Verify new certificates
+kubectl get secret my-kafka-cluster-ca-cert -o jsonpath='{.data.ca\.crt}' | base64 -d | openssl x509 -text -noout
+```
+
+### Cert-Manager Integration
+
+#### Prerequisites
+```bash
+# Install cert-manager
+kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+# Verify installation
+kubectl get pods -n cert-manager
+```
+
+#### ClusterIssuer Configuration
+
+**Let's Encrypt Production:**
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: admin@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+    - dns01:
+        route53:
+          region: us-east-1
+          accessKeyID: AKIAIOSFODNN7EXAMPLE
+          secretAccessKeySecretRef:
+            name: route53-credentials
+            key: secret-access-key
+```
+
+**Private CA Issuer:**
+```yaml
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: private-ca-issuer
+spec:
+  ca:
+    secretName: private-ca-key-pair
+```
+
+#### Kafka with Cert-Manager Certificates
+
+```yaml
+kafkaCluster:
+  listeners:
+    - name: "external"
+      port: 9095
+      type: ingress
+      tls: true
+      authentication:
+        type: tls
+      configuration:
+        class: "nginx"
+        bootstrap:
+          host: "kafka.example.com"
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+          tls:
+            enabled: true
+            secretName: "kafka-bootstrap-tls"  # Managed by cert-manager
+        brokers:
+          generateDynamic: true
+          maxBrokers: 3
+          hostPattern: "kafka-{broker}.example.com"
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+          tls:
+            enabled: true
+            secretName: "kafka-brokers-tls"   # Managed by cert-manager
+
+  # Disable Strimzi CA for external listeners
+  clusterCa:
+    generateCertificateAuthority: false
+    secretName: "external-cluster-ca"  # Provide your own CA
+```
+
+#### Certificate Resources
+
+**Bootstrap Certificate:**
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kafka-bootstrap-cert
+  namespace: kafka-system
+spec:
+  secretName: kafka-bootstrap-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - kafka.example.com
+  - kafka-bootstrap.example.com
+```
+
+**Broker Certificates (Template):**
+```yaml
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: kafka-broker-0-cert
+  namespace: kafka-system
+spec:
+  secretName: kafka-broker-0-tls
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+  dnsNames:
+  - kafka-0.example.com
+  - kafka-broker-0.example.com
+```
+
+### Certificate Rotation Flows
+
+#### Strimzi CA Rotation Flow
+
+```mermaid
+graph TD
+    A[Certificate Expiry Approaching] --> B[Strimzi Operator Detects]
+    B --> C[Generate New CA Certificate]
+    C --> D[Update Cluster CA Secret]
+    D --> E[Rolling Restart Brokers]
+    E --> F[Update Client Certificates]
+    F --> G[Rotation Complete]
+    
+    G --> H[Clients Auto-Reconnect]
+    H --> I[Verify New Certificates]
+```
+
+**Monitoring Strimzi CA Rotation:**
+```bash
+# Check CA certificate expiry
+kubectl get secret my-kafka-cluster-ca-cert -o jsonpath='{.data.ca\.crt}' | \
+  base64 -d | openssl x509 -enddate -noout
+
+# Monitor rotation events
+kubectl get events --field-selector reason=CaCertRenewed
+
+# Check operator logs
+kubectl logs deployment/strimzi-cluster-operator -n strimzi-system
+```
+
+#### Cert-Manager Rotation Flow
+
+```mermaid
+graph TD
+    A[Certificate Expiry Approaching] --> B[Cert-Manager Detects]
+    B --> C[Request New Certificate from CA]
+    C --> D[Update Certificate Secret]
+    D --> E[Ingress Controller Reloads]
+    E --> F[Kafka Brokers Reload TLS]
+    F --> G[Rotation Complete]
+    
+    G --> H[Clients Use New Certificates]
+    H --> I[Verify Certificate Chain]
+```
+
+**Monitoring Cert-Manager Rotation:**
+```bash
+# Check certificate status
+kubectl get certificates -n kafka-system
+
+# Check certificate expiry
+kubectl describe certificate kafka-bootstrap-cert -n kafka-system
+
+# Monitor cert-manager logs
+kubectl logs deployment/cert-manager -n cert-manager
+
+# Check certificate events
+kubectl get events --field-selector involvedObject.kind=Certificate
+```
+
+### Environment-Specific Recommendations
+
+#### Development Environment
+**Recommendation: Strimzi CA**
+```yaml
+kafkaCluster:
+  clusterCa:
+    generateCertificateAuthority: true
+    validityDays: 90  # Shorter validity for dev
+  clientsCa:
+    generateCertificateAuthority: true
+    validityDays: 90
+```
+
+**Rationale:**
+- ✅ Simple setup, no external dependencies
+- ✅ Fast iteration and testing
+- ✅ Self-contained environment
+- ❌ Requires custom truststore configuration
+
+#### Staging Environment
+**Recommendation: Cert-Manager with Staging CA**
+```yaml
+kafkaCluster:
+  listeners:
+    - name: "external"
+      type: ingress
+      configuration:
+        bootstrap:
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-staging"
+```
+
+**Rationale:**
+- ✅ Tests production-like certificate management
+- ✅ Validates cert-manager integration
+- ✅ Uses staging CA (higher rate limits)
+- ✅ Prepares for production deployment
+
+#### Production Environment
+**Recommendation: Cert-Manager with Production CA**
+```yaml
+kafkaCluster:
+  listeners:
+    - name: "external"
+      type: ingress
+      configuration:
+        bootstrap:
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+            # Additional production annotations
+            nginx.ingress.kubernetes.io/ssl-redirect: "true"
+            nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+```
+
+**Rationale:**
+- ✅ Trusted certificates for external clients
+- ✅ Compliance with security policies
+- ✅ Automatic renewal and rotation
+- ✅ Industry-standard certificate management
+- ❌ Additional operational complexity
+
+### Hybrid Approach (Recommended for Large Deployments)
+
+```yaml
+kafkaCluster:
+  listeners:
+    # Internal listeners use Strimzi CA
+    - name: "tls-internal"
+      port: 9093
+      type: internal
+      tls: true
+      # Uses Strimzi CA (default)
+    
+    # External listeners use cert-manager
+    - name: "external"
+      port: 9095
+      type: ingress
+      tls: true
+      configuration:
+        bootstrap:
+          annotations:
+            cert-manager.io/cluster-issuer: "letsencrypt-prod"
+          tls:
+            enabled: true
+            secretName: "kafka-external-tls"  # Managed by cert-manager
+
+  # Keep Strimzi CA for internal communication
+  clusterCa:
+    generateCertificateAuthority: true
+  clientsCa:
+    generateCertificateAuthority: true
+```
+
+### Troubleshooting Certificate Issues
+
+#### Common Strimzi CA Issues
+
+1. **Certificate Expiry**
+   ```bash
+   # Check certificate validity
+   kubectl get secret my-kafka-cluster-ca-cert -o jsonpath='{.data.ca\.crt}' | \
+     base64 -d | openssl x509 -dates -noout
+   
+   # Force certificate renewal
+   kubectl annotate kafka my-kafka strimzi.io/force-renew=true
+   ```
+
+2. **Client Trust Issues**
+   ```bash
+   # Extract CA certificate for client truststore
+   kubectl get secret my-kafka-cluster-ca-cert -o jsonpath='{.data.ca\.crt}' | \
+     base64 -d > kafka-ca.crt
+   
+   # Create Java truststore
+   keytool -import -trustcacerts -alias kafka-ca -file kafka-ca.crt \
+     -keystore kafka-truststore.jks -storepass changeit
+   ```
+
+#### Common Cert-Manager Issues
+
+1. **Certificate Not Issued**
+   ```bash
+   # Check certificate status
+   kubectl describe certificate kafka-bootstrap-cert
+   
+   # Check cert-manager logs
+   kubectl logs deployment/cert-manager -n cert-manager
+   
+   # Check ACME challenge status
+   kubectl get challenges
+   ```
+
+2. **DNS Validation Failures**
+   ```bash
+   # Check DNS propagation
+   dig kafka.example.com
+   
+   # Verify DNS01 solver configuration
+   kubectl describe clusterissuer letsencrypt-prod
+   ```
+
+### Best Practices
+
+#### Security Best Practices
+
+1. **Certificate Rotation**
+   - Set appropriate renewal periods (30 days before expiry)
+   - Monitor certificate expiry dates
+   - Test rotation procedures regularly
+
+2. **Key Management**
+   - Protect private keys with appropriate RBAC
+   - Use separate CAs for different environments
+   - Implement certificate pinning where appropriate
+
+3. **Monitoring**
+   - Set up alerts for certificate expiry
+   - Monitor certificate rotation events
+   - Validate certificate chains regularly
+
+#### Operational Best Practices
+
+1. **Documentation**
+   - Document certificate management procedures
+   - Maintain certificate inventory
+   - Document client configuration requirements
+
+2. **Testing**
+   - Test certificate rotation in non-production
+   - Validate client reconnection behavior
+   - Test certificate validation failures
+
+3. **Automation**
+   - Automate certificate deployment
+   - Implement certificate monitoring
+   - Automate client truststore updates
+
+### References
+
+- [Strimzi Security Documentation](https://strimzi.io/docs/operators/latest/security)
+- [Cert-Manager Documentation](https://cert-manager.io/docs/)
+- [Kafka TLS Configuration](https://kafka.apache.org/documentation/#security_ssl)
 
 ## 🌍 Multi-Environment Deployment
 
