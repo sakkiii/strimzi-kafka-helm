@@ -1,7 +1,8 @@
 {{- if .Values.kafkaCluster.enabled }}
 {{/*
-Note: strimzi.io/node-pools: enabled annotation is automatically included below
-when KafkaNodePool resources are used (see annotations section)
+CRITICAL: When KafkaNodePool resources are defined, the Kafka CR MUST have
+the annotation "strimzi.io/node-pools: enabled" or the operator will ignore the pools.
+This is automatically added below when .Values.kafkaCluster.nodePools is defined.
 */}}
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
@@ -15,7 +16,9 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
   annotations:
-    strimzi.io/node-pools: enabled
+    {{- if .Values.kafkaCluster.nodePools }}
+    strimzi.io/node-pools: enabled  # Required when KafkaNodePool resources are used
+    {{- end }}
     strimzi.io/kraft: enabled  # KRaft mode is mandatory - ZooKeeper is not supported
     {{- with .Values.global.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
