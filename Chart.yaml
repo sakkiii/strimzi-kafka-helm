@@ -13,8 +13,8 @@ home: https://strimzi.io/
 sources:
   - https://github.com/strimzi/strimzi-kafka-operator
 maintainers:
-  - name: Platform Team
-    email: platform-team@company.com
+  - name: Kafka Team
+    email: s@sakkiii.in
 dependencies:
   - name: strimzi-kafka-operator
     version: "0.44.0"

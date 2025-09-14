@@ -17,7 +17,6 @@ metadata:
   annotations:
     strimzi.io/node-pools: enabled
     strimzi.io/kraft: enabled  # KRaft mode is mandatory - ZooKeeper is not supported
-    oneagent.dynatrace.com/inject: "false"
     {{- with .Values.global.commonAnnotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
