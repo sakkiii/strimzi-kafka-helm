@@ -27,6 +27,31 @@ A comprehensive, production-ready Helm chart for deploying Apache Kafka clusters
 - **Pod Disruption Budgets**: Built-in availability protection
 - **Comprehensive Testing**: Helm tests for connectivity validation
 
+## 🔒 Security Features
+
+This Helm chart implements **enterprise-grade security** with comprehensive hardening:
+
+### Authentication & Authorization
+- **Multiple Authentication Methods**: TLS certificates and SCRAM-SHA-512 support
+- **Fine-grained ACLs**: Least-privilege access control with deny-by-default
+- **Superuser Management**: Explicit superuser configuration for admin access
+- **User Management**: Comprehensive KafkaUser resources with role-based permissions
+
+### Transport Security
+- **TLS Everywhere**: Mandatory TLS encryption on all listeners
+- **Strong Cipher Suites**: TLS 1.3 preferred with secure protocol configuration
+- **Certificate Management**: Support for Strimzi CA and external cert-manager integration
+- **Client Authentication**: Required client certificate or password authentication
+
+### Production Hardening
+- **Secure Defaults**: Auto-topic creation disabled, unclean leader election prevented
+- **High Availability**: 5-replica configuration with 3 min-sync replicas
+- **Audit Logging**: Security event logging and monitoring integration
+- **Network Isolation**: Listener-based network segmentation
+
+### Security Documentation
+📖 **[Complete Security Guide](./SECURITY.md)** - Comprehensive security configuration, best practices, and troubleshooting
+
 ## 📋 Prerequisites
 
 - Kubernetes 1.21+
@@ -231,6 +256,142 @@ kubectl create secret docker-registry harbor-secret \
   --docker-password=mypassword \
   --namespace=kafka-system
 ```
+
+## 🔒 Security Configuration
+
+This chart provides comprehensive security features with production-grade hardening. For complete security documentation, see **[SECURITY.md](./SECURITY.md)**.
+
+### Quick Security Setup
+
+#### 1. Basic TLS Configuration
+```yaml
+kafkaCluster:
+  listeners:
+    # Internal TLS listener
+    - name: "tls"
+      port: 9093
+      type: internal
+      tls: true
+      authentication:
+        type: tls
+    
+    # SCRAM-SHA-512 listener for applications
+    - name: "scram"
+      port: 9094
+      type: internal
+      tls: true
+      authentication:
+        type: scram-sha-512
+```
+
+#### 2. Production Security Hardening
+```yaml
+kafkaCluster:
+  authorization:
+    type: simple
+    superUsers:
+      - CN=kafka-admin-prod
+      - kafka-superuser-prod
+  
+  config:
+    # CRITICAL: Security hardening
+    auto.create.topics.enable: false
+    allow.everyone.if.no.acl.found: false
+    ssl.client.auth: required
+    unclean.leader.election.enable: false
+    
+    # High availability
+    default.replication.factor: 5
+    min.insync.replicas: 3
+```
+
+#### 3. KafkaUser with ACLs
+```yaml
+kafkaUsers:
+  - name: app-service-user
+    authentication:
+      type: scram-sha-512
+    authorization:
+      type: simple
+      acls:
+        # Read access to specific topics
+        - resource:
+            type: topic
+            name: "app-events"
+            patternType: literal
+          operations: [Describe, Read]
+          host: "*"
+        
+        # Consumer group access
+        - resource:
+            type: group
+            name: "app-service-group"
+            patternType: literal
+          operations: [Read]
+          host: "*"
+```
+
+### Security Environment Examples
+
+#### Development (Relaxed Security)
+```yaml
+# values-dev.yaml
+kafkaCluster:
+  config:
+    auto.create.topics.enable: true
+    allow.everyone.if.no.acl.found: true
+  listeners:
+    - name: "internal"
+      port: 9092
+      type: internal
+      tls: false
+      authentication: {}
+```
+
+#### Production (Full Security)
+```yaml
+# values-prod.yaml
+kafkaCluster:
+  config:
+    auto.create.topics.enable: false
+    allow.everyone.if.no.acl.found: false
+    ssl.client.auth: required
+    ssl.enabled.protocols: TLSv1.3,TLSv1.2
+    ssl.protocol: TLSv1.3
+  
+  listeners:
+    - name: "tls"
+      port: 9093
+      type: internal
+      tls: true
+      authentication:
+        type: tls
+    
+    - name: "external"
+      port: 9095
+      type: ingress
+      tls: true
+      authentication:
+        type: scram-sha-512
+      configuration:
+        class: "nginx"
+        annotations:
+          nginx.ingress.kubernetes.io/ssl-redirect: "true"
+          cert-manager.io/cluster-issuer: "letsencrypt-prod"
+```
+
+### Security Features Summary
+
+| Feature | Development | Staging | Production |
+|---------|-------------|---------|------------|
+| **TLS Encryption** | Optional | Required | Required |
+| **Client Authentication** | None | SCRAM/TLS | TLS + SCRAM |
+| **ACL Authorization** | Disabled | Basic | Comprehensive |
+| **Auto Topic Creation** | Enabled | Disabled | Disabled |
+| **Superuser Access** | Open | Limited | Restricted |
+| **Certificate Management** | Self-signed | Strimzi CA | cert-manager |
+
+📖 **[Complete Security Guide](./SECURITY.md)** - Authentication, authorization, TLS configuration, ACL patterns, troubleshooting, and security checklists.
 
 ## Kubernetes-style Ingress Configuration
 
