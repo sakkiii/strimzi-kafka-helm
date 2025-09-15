@@ -89,12 +89,14 @@ nodeSelector:
 {{- end }}
 
 {{/*
-Merge global and component-specific affinity configurations
-Usage: {{ include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.nodePools.0.template.pod.affinity "context" .) }}
+Merge global and component-specific affinity configurations, converting nodeSelector to nodeAffinity
+Usage: {{ include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.nodePools.0.template.pod.affinity "globalNodeSelector" .Values.global.nodeSelector "componentNodeSelector" .Values.kafkaCluster.nodePools.0.template.pod.nodeSelector "context" .) }}
 */}}
 {{- define "strimzi-kafka.affinity" -}}
 {{- $global := .global -}}
 {{- $component := .component -}}
+{{- $globalNodeSelector := .globalNodeSelector -}}
+{{- $componentNodeSelector := .componentNodeSelector -}}
 {{- $context := .context -}}
 {{- $result := dict -}}
 
@@ -103,10 +105,76 @@ Usage: {{ include "strimzi-kafka.affinity" (dict "global" .Values.global.affinit
   {{- $result = deepCopy $global -}}
 {{- end -}}
 
-{{/* Override with component-specific affinity if it exists */}}
+{{/* Convert global nodeSelector to nodeAffinity */}}
+{{- if $globalNodeSelector -}}
+  {{- $nodeAffinityFromSelector := dict -}}
+  {{- $matchExpressions := list -}}
+  {{- range $key, $value := $globalNodeSelector -}}
+    {{- $matchExpressions = append $matchExpressions (dict "key" $key "operator" "In" "values" (list $value)) -}}
+  {{- end -}}
+  {{- if $matchExpressions -}}
+    {{- $nodeAffinityFromSelector = dict "requiredDuringSchedulingIgnoredDuringExecution" (dict "nodeSelectorTerms" (list (dict "matchExpressions" $matchExpressions))) -}}
+    {{- if not $result.nodeAffinity -}}
+      {{- $_ := set $result "nodeAffinity" $nodeAffinityFromSelector -}}
+    {{- else -}}
+      {{/* Merge with existing nodeAffinity */}}
+      {{- if $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $existingTerms := $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms | default list -}}
+        {{- $newTerms := $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms -}}
+        {{- $mergedTerms := concat $existingTerms $newTerms -}}
+        {{- $_ := set $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution "nodeSelectorTerms" $mergedTerms -}}
+      {{- else -}}
+        {{- $_ := set $result.nodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{/* Convert component nodeSelector to nodeAffinity */}}
+{{- if $componentNodeSelector -}}
+  {{- $nodeAffinityFromSelector := dict -}}
+  {{- $matchExpressions := list -}}
+  {{- range $key, $value := $componentNodeSelector -}}
+    {{- $matchExpressions = append $matchExpressions (dict "key" $key "operator" "In" "values" (list $value)) -}}
+  {{- end -}}
+  {{- if $matchExpressions -}}
+    {{- $nodeAffinityFromSelector = dict "requiredDuringSchedulingIgnoredDuringExecution" (dict "nodeSelectorTerms" (list (dict "matchExpressions" $matchExpressions))) -}}
+    {{- if not $result.nodeAffinity -}}
+      {{- $_ := set $result "nodeAffinity" $nodeAffinityFromSelector -}}
+    {{- else -}}
+      {{/* Merge with existing nodeAffinity */}}
+      {{- if $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $existingTerms := $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms | default list -}}
+        {{- $newTerms := $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms -}}
+        {{- $mergedTerms := concat $existingTerms $newTerms -}}
+        {{- $_ := set $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution "nodeSelectorTerms" $mergedTerms -}}
+      {{- else -}}
+        {{- $_ := set $result.nodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution -}}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
+{{- end -}}
+
+{{/* Merge with component-specific affinity if it exists */}}
 {{- if $component -}}
   {{- if $component.nodeAffinity -}}
-    {{- $_ := set $result "nodeAffinity" $component.nodeAffinity -}}
+    {{- if not $result.nodeAffinity -}}
+      {{- $_ := set $result "nodeAffinity" $component.nodeAffinity -}}
+    {{- else -}}
+      {{/* Merge nodeAffinity - component overrides global */}}
+      {{- $mergedNodeAffinity := dict -}}
+      {{- if $component.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $component.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+      {{- else if $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+      {{- end -}}
+      {{- if $component.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "preferredDuringSchedulingIgnoredDuringExecution" $component.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+      {{- else if $result.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "preferredDuringSchedulingIgnoredDuringExecution" $result.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+      {{- end -}}
+      {{- $_ := set $result "nodeAffinity" $mergedNodeAffinity -}}
+    {{- end -}}
   {{- end -}}
   {{- if $component.podAffinity -}}
     {{- $_ := set $result "podAffinity" $component.podAffinity -}}

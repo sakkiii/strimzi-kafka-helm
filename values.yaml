@@ -24,6 +24,7 @@ global:
   commonAnnotations: {}
   
   # Global Node Selection - Simple and flexible (applied to all components unless overridden)
+  # NOTE: nodeSelector will be automatically converted to nodeAffinity for Strimzi compatibility
   nodeSelector: {}
     # Examples:
     # node-type: "kafka"
@@ -31,7 +32,7 @@ global:
     # kubernetes.io/arch: "amd64"
   
   # Global Affinity Configuration (applied to all components unless overridden)
-  # Use nodeSelector above for simple node selection, affinity for complex scenarios
+  # nodeSelector values above are automatically converted to nodeAffinity and merged with this configuration
   affinity: {}
     # nodeAffinity:
     #   requiredDuringSchedulingIgnoredDuringExecution:

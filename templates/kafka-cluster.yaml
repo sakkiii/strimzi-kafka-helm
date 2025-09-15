@@ -154,8 +154,7 @@ spec:
     userOperator: {}
     template:
       pod:
-        {{- include "strimzi-kafka.nodeSelector" (dict "global" .Values.global.nodeSelector "component" .Values.kafkaCluster.entityOperator.template.pod.nodeSelector "context" .) | nindent 8 }}
-        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.entityOperator.template.pod.affinity "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.entityOperator.template.pod.affinity "globalNodeSelector" .Values.global.nodeSelector "componentNodeSelector" .Values.kafkaCluster.entityOperator.template.pod.nodeSelector "context" .) | nindent 8 }}
         {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.entityOperator.template.pod.tolerations "context" .) | nindent 8 }}
   {{- end }}
   {{- if .Values.kafkaCluster.kafkaExporter.enabled }}
@@ -171,8 +170,7 @@ spec:
     groupRegex: {{ .Values.kafkaCluster.kafkaExporter.groupRegex | quote }}
     template:
       pod:
-        {{- include "strimzi-kafka.nodeSelector" (dict "global" .Values.global.nodeSelector "component" .Values.kafkaCluster.kafkaExporter.template.pod.nodeSelector "context" .) | nindent 8 }}
-        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.kafkaExporter.template.pod.affinity "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.kafkaExporter.template.pod.affinity "globalNodeSelector" .Values.global.nodeSelector "componentNodeSelector" .Values.kafkaCluster.kafkaExporter.template.pod.nodeSelector "context" .) | nindent 8 }}
         {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.kafkaExporter.template.pod.tolerations "context" .) | nindent 8 }}
   {{- end }}
   {{- if .Values.kafkaCluster.cruiseControl.enabled }}
@@ -194,8 +192,7 @@ spec:
         cpu: {{ .Values.kafkaCluster.cruiseControl.resources.limits.cpu }}
     template:
       pod:
-        {{- include "strimzi-kafka.nodeSelector" (dict "global" .Values.global.nodeSelector "component" .Values.kafkaCluster.cruiseControl.template.pod.nodeSelector "context" .) | nindent 8 }}
-        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.cruiseControl.template.pod.affinity "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.cruiseControl.template.pod.affinity "globalNodeSelector" .Values.global.nodeSelector "componentNodeSelector" .Values.kafkaCluster.cruiseControl.template.pod.nodeSelector "context" .) | nindent 8 }}
         {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.cruiseControl.template.pod.tolerations "context" .) | nindent 8 }}
     {{- if .Values.kafkaCluster.cruiseControl.metricsConfig.enabled }}
     metricsConfig:
@@ -287,8 +284,7 @@ spec:
       {{- if .template.pod.terminationGracePeriodSeconds }}
       terminationGracePeriodSeconds: {{ .template.pod.terminationGracePeriodSeconds }}
       {{- end }}
-      {{- include "strimzi-kafka.nodeSelector" (dict "global" $.Values.global.nodeSelector "component" (.template.pod.nodeSelector | default dict) "context" $) | nindent 6 }}
-      {{- include "strimzi-kafka.affinity" (dict "global" $.Values.global.affinity "component" (.template.pod.affinity | default dict) "context" $) | nindent 6 }}
+      {{- include "strimzi-kafka.affinity" (dict "global" $.Values.global.affinity "component" (.template.pod.affinity | default dict) "globalNodeSelector" $.Values.global.nodeSelector "componentNodeSelector" (.template.pod.nodeSelector | default dict) "context" $) | nindent 6 }}
       {{- include "strimzi-kafka.tolerations" (dict "global" $.Values.global.tolerations "component" (.template.pod.tolerations | default dict) "context" $) | nindent 6 }}
     {{- end }}
   {{- end }}
