@@ -29,67 +29,8 @@ skip-check:
   - CKV_K8S_19  # Ensure that default service accounts are not actively used
   - CKV_K8S_21  # The default namespace should not be used
 
-# Severity configuration
-severity:
-  - HIGH
-  - MEDIUM
-  - LOW
-
-# Output configuration
-output:
-  - sarif
-  - cli
-
-# Custom checks configuration
-check:
-  # Enable security-focused checks
-  - CKV_K8S_14  # Ensure that container images are not tagged with :latest
-  - CKV_K8S_15  # Ensure that image pull policy is set to Always
-  - CKV_K8S_16  # Container should not be privileged
-  - CKV_K8S_17  # Containers should not share the host process ID namespace
-  - CKV_K8S_18  # Containers should not share the host IPC namespace
-  - CKV_K8S_22  # Use read-only filesystem for containers where possible
-  - CKV_K8S_28  # Minimize the admission of containers with the NET_RAW capability
-  - CKV_K8S_29  # Apply security context to your pods and containers
-  - CKV_K8S_30  # Apply security context to your containers
-  - CKV_K8S_31  # Ensure that the seccomp profile is set to docker/default or runtime/default
-  - CKV_K8S_37  # Minimize the admission of containers with capabilities assigned
-
-# File patterns to include/exclude
-# Note: Using directory instead of specific patterns to avoid argument parsing issues
-directory: .
-
-exclude:
-  - ".git/**"
-  - "rendered-templates/**"
-  - "packaged-charts/**"
-
-# Suppress specific findings by file pattern
-suppress:
-  # Suppress findings for test resources
-  - id: "CKV_K8S_*"
-    file_path: "templates/tests/**"
-    comment: "Test resources have relaxed security requirements"
-  
-  # Suppress findings for development configurations
-  - id: "CKV_K8S_15"
-    file_path: "values-nonprod.yaml"
-    comment: "Development environments may use different image pull policies"
-
-# Custom policies directory (if you have custom Checkov policies)
-# external-checks-dir: .checkov-policies/
-
-# Baseline file to compare against (optional)
-# baseline: .checkov.baseline
-
 # Compact output for CI/CD
 compact: true
 
 # Quiet mode (reduce verbose output)
 quiet: false
-
-# Download external modules
-download-external-modules: true
-
-# Enable experimental features
-enable-experimental-checks: true
