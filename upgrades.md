@@ -1,273 +1,382 @@
-# Kafka Version Upgrades Guide
+# 🔄 Kafka Cluster Upgrades Guide
 
-This guide documents the proper sequence for upgrading Kafka versions in Strimzi-managed clusters, including rollback procedures and best practices.
+This document provides comprehensive guidance for upgrading Kafka clusters deployed with this Helm chart, including Strimzi operator upgrades, Kafka version upgrades, and Kubernetes compatibility.
 
-## 📋 Prerequisites
+## 📋 Table of Contents
 
-- **Backup**: Always backup your Kafka data and configuration before upgrading
-- **Testing**: Test the upgrade procedure in a non-production environment first
-- **Monitoring**: Ensure monitoring is in place to track the upgrade progress
-- **Maintenance Window**: Plan for downtime during the upgrade process
+- [Compatibility Matrix](#compatibility-matrix)
+- [Pre-Upgrade Checklist](#pre-upgrade-checklist)
+- [Upgrade Types](#upgrade-types)
+- [Kafka Version Upgrades](#kafka-version-upgrades)
+- [Strimzi Operator Upgrades](#strimzi-operator-upgrades)
+- [Helm Chart Upgrades](#helm-chart-upgrades)
+- [Kubernetes Cluster Upgrades](#kubernetes-cluster-upgrades)
+- [Rollback Procedures](#rollback-procedures)
+- [Troubleshooting](#troubleshooting)
 
-## 🔄 Upgrade Sequence
+## 🔗 Compatibility Matrix
 
-### Phase 1: Prepare Inter-Broker Protocol Version
+### Strimzi 0.47.x Compatibility
 
-**⚠️ CRITICAL**: Always set the inter-broker protocol version FIRST before upgrading Kafka binaries.
+| Component | Version | Kubernetes Support | Notes |
+|-----------|---------|-------------------|-------|
+| **Strimzi Operator** | 0.47.0 | 1.25 - 1.31 | ⚠️ Last version to support K8s 1.25-1.26 |
+| **Kafka** | 3.9.0 (default) | All supported K8s | Recommended for new deployments |
+| **Kafka** | 3.8.x | All supported K8s | Supported for existing clusters |
+| **Kafka** | 3.7.x | All supported K8s | Legacy support |
 
-1. **Update the inter-broker protocol version** in your `values.yaml`:
+### Kubernetes Version Support
+
+> ⚠️ **IMPORTANT**: Strimzi 0.47.x is the **last version** to support Kubernetes 1.25 and 1.26.
+> Plan your Kubernetes upgrades accordingly.
+
+| Kubernetes Version | Strimzi 0.47.x | Future Strimzi Versions |
+|-------------------|----------------|------------------------|
+| 1.25.x | ✅ Supported | ❌ Not supported |
+| 1.26.x | ✅ Supported | ❌ Not supported |
+| 1.27.x | ✅ Supported | ✅ Supported |
+| 1.28.x | ✅ Supported | ✅ Supported |
+| 1.29.x | ✅ Supported | ✅ Supported |
+| 1.30.x | ✅ Supported | ✅ Supported |
+| 1.31.x | ✅ Supported | ✅ Supported |
+
+## ✅ Pre-Upgrade Checklist
+
+Before starting any upgrade, ensure you have:
+
+### 🔍 Assessment
+- [ ] **Current versions documented**: Strimzi, Kafka, Kubernetes, Helm chart
+- [ ] **Cluster health verified**: All brokers healthy, no under-replicated partitions
+- [ ] **Backup strategy**: Topic configurations, user ACLs, and critical data backed up
+- [ ] **Maintenance window**: Planned downtime window (if required)
+- [ ] **Monitoring ready**: Metrics and alerting systems active
+
+### 🛡️ Safety Measures
+- [ ] **Test environment**: Upgrade tested in non-production environment first
+- [ ] **Rollback plan**: Documented rollback procedures and tested
+- [ ] **Client compatibility**: Verified client applications support target Kafka version
+- [ ] **Network policies**: Reviewed and updated if necessary
+- [ ] **Resource capacity**: Sufficient cluster resources for upgrade process
+
+### 📊 Cruise Control (if enabled)
+- [ ] **Rebalance status**: No active rebalances running
+- [ ] **Goals configured**: Appropriate rebalance goals for upgrade scenario
+- [ ] **Capacity planning**: Verified cluster can handle temporary broker unavailability
+
+## 🔄 Upgrade Types
+
+### 1. **Rolling Upgrades** (Recommended)
+- Zero-downtime upgrades
+- Brokers upgraded one at a time
+- Requires proper replication factor (≥3)
+- Client connections may experience brief interruptions
+
+### 2. **Blue-Green Upgrades**
+- Complete cluster replacement
+- Zero client downtime (with proper load balancing)
+- Requires double resources temporarily
+- Best for major version jumps
+
+### 3. **In-Place Upgrades**
+- Direct upgrade without rolling
+- Requires cluster downtime
+- Fastest upgrade method
+- Only for maintenance windows
+
+## 🚀 Kafka Version Upgrades
+
+### Supported Upgrade Paths
+
+```mermaid
+graph LR
+    A[Kafka 3.7.x] --> B[Kafka 3.8.x]
+    B --> C[Kafka 3.9.x]
+    
+    style C fill:#90EE90
+    style A fill:#FFE4B5
+```
+
+### Step-by-Step Kafka Upgrade Process
+
+#### Phase 1: Prepare for Upgrade
+
+1. **Set inter-broker protocol version** (if upgrading from older versions):
    ```yaml
+   # In values.yaml
    kafkaCluster:
      config:
-       # Set to the CURRENT Kafka version's protocol before upgrading
-       inter.broker.protocol.version: "3.8"  # If upgrading FROM 3.8.x
-       log.message.format.version: "3.8"     # Keep current format initially
+       inter.broker.protocol.version: "3.8"  # Current version
+       log.message.format.version: "3.8"     # Current version
    ```
 
-2. **Apply the configuration change**:
+2. **Apply configuration and wait for rolling update**:
    ```bash
-   helm upgrade my-kafka . -f values-prod.yaml
+   helm upgrade my-kafka-release . -f values.yaml
+   kubectl rollout status statefulset/my-kafka-cluster-kafka
    ```
 
-3. **Wait for rolling restart** to complete:
-   ```bash
-   kubectl get pods -l strimzi.io/cluster=my-kafka -w
-   ```
+#### Phase 2: Upgrade Kafka Version
 
-### Phase 2: Upgrade Kafka Version
-
-4. **Update the Kafka version** in your `values.yaml`:
+3. **Update Kafka version in values.yaml**:
    ```yaml
    kafkaCluster:
-     version: "3.9.0"  # New target version
+     version: "3.9.0"  # Target version
      config:
-       inter.broker.protocol.version: "3.8"  # Still old protocol
-       log.message.format.version: "3.8"     # Still old format
+       inter.broker.protocol.version: "3.8"  # Keep old protocol initially
+       log.message.format.version: "3.8"     # Keep old format initially
    ```
 
-5. **Apply the version upgrade**:
+4. **Apply upgrade and monitor**:
    ```bash
-   helm upgrade my-kafka . -f values-prod.yaml
-   ```
-
-6. **Monitor the rolling upgrade**:
-   ```bash
-   # Watch pods restart with new version
-   kubectl get pods -l strimzi.io/cluster=my-kafka -w
+   helm upgrade my-kafka-release . -f values.yaml
    
-   # Check Kafka version in logs
-   kubectl logs my-kafka-dual-role-0 -c kafka | grep "Kafka version"
+   # Monitor the rolling update
+   kubectl get pods -l strimzi.io/cluster=my-kafka-cluster -w
+   
+   # Check broker logs for any issues
+   kubectl logs -f my-kafka-cluster-kafka-0 -c kafka
    ```
 
-### Phase 3: Update Protocol and Message Format
+#### Phase 3: Update Protocol Versions
 
-**⚠️ WARNING**: This step is irreversible. Ensure all brokers are running the new version successfully.
-
-7. **Update protocol and message format versions**:
+5. **After successful broker upgrade, update protocol versions**:
    ```yaml
    kafkaCluster:
      version: "3.9.0"
      config:
-       inter.broker.protocol.version: "3.9"  # Now upgrade protocol
-       log.message.format.version: "3.9"     # Now upgrade format
+       inter.broker.protocol.version: "3.9"  # Update to new version
+       log.message.format.version: "3.9"     # Update to new version
    ```
 
-8. **Apply the final configuration**:
+6. **Apply final configuration**:
    ```bash
-   helm upgrade my-kafka . -f values-prod.yaml
+   helm upgrade my-kafka-release . -f values.yaml
    ```
 
-9. **Verify the upgrade**:
+### Cruise Control Integration During Upgrades
+
+If Cruise Control is enabled, it will automatically:
+- Monitor cluster balance during upgrades
+- Trigger rebalancing if configured with `autoRebalance.enabled: true`
+- Ensure optimal broker utilization post-upgrade
+
+```yaml
+# Recommended Cruise Control settings for upgrades
+kafkaCluster:
+  cruiseControl:
+    enabled: true
+    autoRebalance:
+      enabled: true
+      modes:
+        - mode: add-brokers
+          templateName: "upgrade-rebalance-template"
+        - mode: remove-brokers  
+          templateName: "upgrade-rebalance-template"
+```
+
+## 🔧 Strimzi Operator Upgrades
+
+### Operator Upgrade Process
+
+1. **Check compatibility matrix** above for supported versions
+
+2. **Upgrade operator** (if managing operator separately):
    ```bash
-   # Check broker versions
-   kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-broker-api-versions.sh \
-     --bootstrap-server localhost:9092
+   # Update operator deployment
+   kubectl set image deployment/strimzi-cluster-operator \
+     strimzi-cluster-operator=quay.io/strimzi/operator:0.47.0 \
+     -n strimzi-operator
    ```
+
+3. **Update CRDs** (if required):
+   ```bash
+   kubectl apply -f https://github.com/strimzi/strimzi-kafka-operator/releases/download/0.47.0/strimzi-cluster-operator-0.47.0.yaml
+   ```
+
+4. **Update Helm chart** to use new operator version:
+   ```yaml
+   global:
+     defaultImageTag: "0.47.0-kafka-3.9.0"
+   ```
+
+## 📦 Helm Chart Upgrades
+
+### Chart Version Compatibility
+
+```bash
+# Check current chart version
+helm list -n kafka-namespace
+
+# Update chart repository
+helm repo update
+
+# Check available versions
+helm search repo strimzi-kafka-helm --versions
+
+# Upgrade with specific version
+helm upgrade my-kafka-release strimzi-kafka-helm/strimzi-kafka-helm \
+  --version 1.2.0 \
+  -f values.yaml \
+  --namespace kafka-namespace
+```
+
+### Breaking Changes Handling
+
+When upgrading chart versions, review:
+- **Values.yaml schema changes**: New required fields or deprecated options
+- **Template changes**: Modified resource definitions
+- **Default value updates**: Changed default configurations
+
+## ☸️ Kubernetes Cluster Upgrades
+
+### Pre-Kubernetes Upgrade
+
+1. **Verify Strimzi compatibility** with target Kubernetes version
+2. **Update node selectors** if node labels change
+3. **Review storage classes** for any deprecated APIs
+4. **Check network policies** for API version updates
+
+### During Kubernetes Upgrade
+
+1. **Drain nodes gracefully**:
+   ```bash
+   kubectl drain <node-name> --ignore-daemonsets --delete-emptydir-data
+   ```
+
+2. **Monitor Kafka cluster health**:
+   ```bash
+   kubectl get kafka my-kafka-cluster -o yaml
+   kubectl get pods -l strimzi.io/cluster=my-kafka-cluster
+   ```
+
+3. **Verify connectivity** after each node upgrade
+
+### Post-Kubernetes Upgrade
+
+1. **Update Helm chart** if Kubernetes API versions changed
+2. **Verify all resources** are healthy
+3. **Test client connectivity** and performance
+4. **Update monitoring dashboards** if metrics changed
 
 ## 🔙 Rollback Procedures
 
-### Before Protocol/Format Upgrade (Phases 1-2)
+### Kafka Version Rollback
 
-If issues occur before updating protocol/format versions, you can rollback:
+⚠️ **WARNING**: Kafka version rollbacks are **not supported** once log format version is updated.
 
-1. **Revert Kafka version**:
+**Safe rollback conditions**:
+- Kafka version upgraded but protocol versions not yet updated
+- No new log format features used
+- Within same major version family
+
+**Rollback steps**:
+1. **Revert Kafka version** in values.yaml:
    ```yaml
    kafkaCluster:
-     version: "3.8.0"  # Revert to previous version
-     config:
-       inter.broker.protocol.version: "3.8"
-       log.message.format.version: "3.8"
+     version: "3.8.0"  # Previous version
    ```
 
 2. **Apply rollback**:
    ```bash
-   helm upgrade my-kafka . -f values-prod.yaml
+   helm upgrade my-kafka-release . -f values.yaml
    ```
 
-### After Protocol/Format Upgrade (Phase 3)
-
-**⚠️ CRITICAL**: Once protocol and message format are upgraded, rollback is NOT possible without data loss.
-
-**Options if rollback is absolutely necessary**:
-1. **Restore from backup** (recommended)
-2. **Migrate data** to a new cluster with the old version
-3. **Accept data loss** and start fresh
-
-## 📊 Monitoring During Upgrades
-
-### Key Metrics to Watch
+### Helm Chart Rollback
 
 ```bash
-# Broker availability
-kubectl get pods -l strimzi.io/cluster=my-kafka
+# List release history
+helm history my-kafka-release
 
-# Cluster health
-kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 --list
+# Rollback to previous version
+helm rollback my-kafka-release 1
 
-# Under-replicated partitions (should be 0)
-kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 --describe --under-replicated-partitions
-
-# Consumer lag (if applicable)
-kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-consumer-groups.sh \
-  --bootstrap-server localhost:9092 --list
+# Rollback to specific revision
+helm rollback my-kafka-release 3
 ```
 
-### Prometheus Metrics (if enabled)
+### Emergency Procedures
 
-Monitor these metrics during upgrades:
-- `kafka_server_replicamanager_underreplicatedpartitions`
-- `kafka_server_kafkaserver_brokerstate`
-- `kafka_network_requestmetrics_totaltimems`
+If cluster becomes unstable:
 
-## 🚨 Troubleshooting
+1. **Stop all producers** to prevent data loss
+2. **Scale down non-essential consumers**
+3. **Check broker logs** for error patterns:
+   ```bash
+   kubectl logs -l strimzi.io/cluster=my-kafka-cluster -c kafka --tail=100
+   ```
+4. **Revert to last known good configuration**
+5. **Contact support** with logs and configuration details
 
-### Common Issues
+## 🔧 Troubleshooting
 
-#### 1. Broker Fails to Start After Upgrade
+### Common Upgrade Issues
 
-**Symptoms**: Pod in CrashLoopBackOff, logs show version compatibility errors
-
-**Solution**:
+#### 1. **Broker Startup Failures**
 ```bash
-# Check logs for specific error
-kubectl logs my-kafka-dual-role-0 -c kafka
+# Check broker logs
+kubectl logs my-kafka-cluster-kafka-0 -c kafka
 
-# Common fix: Ensure protocol version is compatible
-# Revert to previous Kafka version if needed
+# Common causes:
+# - Incompatible configuration
+# - Insufficient resources
+# - Storage issues
+# - Network connectivity
 ```
 
-#### 2. Under-Replicated Partitions
-
-**Symptoms**: Topics show under-replicated partitions during upgrade
-
-**Solution**:
+#### 2. **Under-Replicated Partitions**
 ```bash
-# Wait for rolling restart to complete
-kubectl get pods -l strimzi.io/cluster=my-kafka -w
-
-# Check partition status
-kubectl exec my-kafka-dual-role-0 -c kafka -- bin/kafka-topics.sh \
-  --bootstrap-server localhost:9092 --describe --under-replicated-partitions
-
-# If persistent, check broker logs for errors
+# Check cluster status
+kubectl exec -it my-kafka-cluster-kafka-0 -c kafka -- \
+  bin/kafka-topics.sh --bootstrap-server localhost:9092 --describe --under-replicated-partitions
 ```
 
-#### 3. Client Compatibility Issues
+#### 3. **Client Connection Issues**
+```bash
+# Test connectivity
+kubectl exec -it my-kafka-cluster-kafka-0 -c kafka -- \
+  bin/kafka-console-producer.sh --bootstrap-server localhost:9092 --topic test-topic
+```
 
-**Symptoms**: Clients unable to connect after protocol upgrade
+#### 4. **Cruise Control Issues**
+```bash
+# Check Cruise Control status
+kubectl logs -l strimzi.io/name=my-kafka-cluster-cruise-control -c cruise-control
 
-**Solution**:
-- Ensure client libraries support the new protocol version
-- Update client configurations if needed
-- Consider gradual client migration
-
-## 📝 Version Compatibility Matrix
-
-| Kafka Version | Min Protocol Version | Max Protocol Version | Notes |
-|---------------|---------------------|---------------------|-------|
-| 3.8.x | 3.0 | 3.8 | Stable release |
-| 3.9.x | 3.0 | 3.9 | Latest features |
-| 4.0.x | 3.3 | 4.0 | Future release (KRaft only) |
-
-## 🔧 Cruise Control Considerations
-
-### Disable During Disruptive Operations
-
-**⚠️ IMPORTANT**: Disable Cruise Control during upgrades to prevent interference:
-
-```yaml
+# Disable auto-rebalance if causing issues
 kafkaCluster:
   cruiseControl:
-    enabled: false  # Disable during upgrade
+    autoRebalance:
+      enabled: false
 ```
 
-**Re-enable after upgrade completion**:
-```yaml
-kafkaCluster:
-  cruiseControl:
-    enabled: true
-```
+### Performance Monitoring During Upgrades
 
-### Rebalancing After Upgrades
+Monitor these key metrics:
+- **Broker CPU/Memory usage**
+- **Network I/O patterns**
+- **Disk utilization**
+- **Client request latency**
+- **Under-replicated partitions**
+- **Leader election frequency**
 
-After successful upgrade, consider rebalancing:
+### Recovery Procedures
 
-```yaml
-# Apply KafkaRebalance resource
-apiVersion: kafka.strimzi.io/v1beta2
-kind: KafkaRebalance
-metadata:
-  name: post-upgrade-rebalance
-  labels:
-    strimzi.io/cluster: my-kafka
-spec:
-  mode: full
-  goals:
-    - RackAwareGoal
-    - ReplicaCapacityGoal
-    - DiskCapacityGoal
-    - NetworkInboundCapacityGoal
-    - NetworkOutboundCapacityGoal
-    - CpuCapacityGoal
-    - ReplicaDistributionGoal
-    - PotentialNwOutGoal
-    - DiskUsageDistributionGoal
-    - NetworkInboundUsageDistributionGoal
-    - NetworkOutboundUsageDistributionGoal
-    - CpuUsageDistributionGoal
-    - LeaderReplicaDistributionGoal
-    - LeaderBytesInDistributionGoal
-```
+If upgrade fails:
+1. **Document current state** (logs, configurations, metrics)
+2. **Assess data integrity** (check for data loss)
+3. **Implement rollback plan** (if safe to do so)
+4. **Restore from backup** (if necessary)
+5. **Investigate root cause** before retry
 
-## 📚 References
+## 📞 Support and Resources
 
-- [Strimzi Upgrade Guide](https://strimzi.io/docs/operators/latest/deploying#assembly-upgrade-str)
-- [Kafka Upgrade Documentation](https://kafka.apache.org/documentation/#upgrade)
-- [KRaft Migration Guide](https://strimzi.io/docs/operators/latest/deploying#proc-migrating-clusters-kraft-str)
-- [Cruise Control Goals](https://strimzi.io/docs/operators/latest/configuring#proc-cruise-control-goals-str)
+- **Strimzi Documentation**: https://strimzi.io/docs/
+- **Kafka Documentation**: https://kafka.apache.org/documentation/
+- **Kubernetes Release Notes**: https://kubernetes.io/releases/
+- **Helm Documentation**: https://helm.sh/docs/
 
-## ✅ Pre-Upgrade Checklist
+---
 
-- [ ] Backup Kafka data and configuration
-- [ ] Test upgrade in non-production environment
-- [ ] Review [Kafka release notes](https://kafka.apache.org/downloads) for breaking changes
-- [ ] Ensure monitoring is in place
-- [ ] Schedule maintenance window
-- [ ] Notify stakeholders
-- [ ] Disable Cruise Control
-- [ ] Verify client compatibility
-- [ ] Prepare rollback plan
-- [ ] Document current configuration
+> 💡 **Best Practice**: Always test upgrades in a non-production environment that mirrors your production setup as closely as possible.
 
-## ✅ Post-Upgrade Checklist
-
-- [ ] Verify all brokers are running new version
-- [ ] Check for under-replicated partitions
-- [ ] Test client connectivity
-- [ ] Monitor performance metrics
-- [ ] Re-enable Cruise Control
-- [ ] Consider post-upgrade rebalancing
-- [ ] Update documentation
-- [ ] Notify stakeholders of completion
+> ⚠️ **Remember**: Kafka upgrades are generally forward-compatible but not backward-compatible once protocol versions are updated.
