@@ -1,0 +1,6 @@
+dependencies:
+- name: strimzi-kafka-operator
+  repository: https://strimzi.io/charts/
+  version: 0.47.0
+digest: sha256:af833d507e7ef4bae4f2a06552ca741760bca4404809fc49781fb91258ac7aac
+generated: "2025-09-15T14:32:42.283177+05:30"

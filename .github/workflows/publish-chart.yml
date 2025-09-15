@@ -8,7 +8,8 @@ on:
       - 'Chart.yaml'
       - 'values.yaml'
       - 'templates/**'
-      - 'values-*.yaml'
+      - 'examples/**'
+      - '*.md'
   pull_request:
     branches:
       - main
@@ -16,7 +17,8 @@ on:
       - 'Chart.yaml'
       - 'values.yaml'
       - 'templates/**'
-      - 'values-*.yaml'
+      - 'examples/**'
+      - '*.md'
   workflow_dispatch:
     inputs:
       version_bump:
@@ -95,6 +97,12 @@ jobs:
           echo "🔍 Linting Helm chart..."
           helm lint "${{ env.CHART_PATH }}"
 
+      - name: 📦 Setup Helm Repositories
+        run: |
+          echo "📦 Setting up Helm repositories..."
+          helm repo add strimzi https://strimzi.io/charts/
+          helm repo update
+
       - name: 📦 Update Dependencies
         run: |
           echo "📦 Updating Helm dependencies..."
@@ -104,16 +112,25 @@ jobs:
         run: |
           echo "🧪 Validating Helm templates..."
           
-          # Test with different environment value files
-          for values_file in values-*.yaml; do
-            if [ -f "$values_file" ]; then
-              echo "Testing with $values_file"
-              helm template test-release . -f "$values_file" --debug > /dev/null
-            fi
-          done
-          
           # Test default values
+          echo "Testing with default values..."
           helm template test-release . --debug > /dev/null
+          
+          # Test with rack awareness enabled
+          echo "Testing with rack awareness enabled..."
+          helm template test-release . --set kafkaCluster.rack.enabled=true --debug > /dev/null
+          
+          # Test with node selector configurations
+          echo "Testing with node selector..."
+          helm template test-release . --set global.nodeSelector.node-type=kafka --debug > /dev/null
+          
+          # Test with complex scheduling configurations (simplified for CI)
+          echo "Testing with complex scheduling..."
+          helm template test-release . \
+            --set global.nodeSelector.node-type=kafka \
+            --set kafkaCluster.rack.enabled=true \
+            --debug > /dev/null
+          
           echo "✅ All template validations passed"
 
       - name: 🔒 Security Scan with Checkov

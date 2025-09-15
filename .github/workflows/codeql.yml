@@ -9,14 +9,18 @@ on:
     branches: [ "main" ]
     paths:
       - 'templates/**'
-      - 'values*.yaml'
+      - 'values.yaml'
       - 'Chart.yaml'
+      - '.checkov.yaml'
+      - '.github/workflows/**'
   pull_request:
     branches: [ "main" ]
     paths:
       - 'templates/**'
-      - 'values*.yaml'
+      - 'values.yaml'
       - 'Chart.yaml'
+      - '.checkov.yaml'
+      - '.github/workflows/**'
   schedule:
     - cron: '35 21 * * 3'  # Weekly security scan
 
@@ -45,17 +49,24 @@ jobs:
           echo "🔍 Rendering Helm templates for security analysis..."
           mkdir -p rendered-templates
           
-          # Render templates with different environment configurations
-          for values_file in values*.yaml; do
-            if [ -f "$values_file" ]; then
-              env_name=$(basename "$values_file" .yaml | sed 's/values-//')
-              echo "Rendering templates with $values_file"
-              helm template security-scan . -f "$values_file" > "rendered-templates/manifests-$env_name.yaml"
-            fi
-          done
+          # Add Strimzi Helm repository for dependencies
+          helm repo add strimzi https://strimzi.io/charts/
+          helm repo update
+          
+          # Update dependencies
+          helm dependency update
           
           # Render with default values
+          echo "Rendering templates with default values..."
           helm template security-scan . > rendered-templates/manifests-default.yaml
+          
+          # Test with rack awareness enabled
+          echo "Rendering templates with rack awareness enabled..."
+          helm template security-scan . --set kafkaCluster.rack.enabled=true > rendered-templates/manifests-rack-enabled.yaml
+          
+          # Test with different node selector configurations
+          echo "Rendering templates with node selector..."
+          helm template security-scan . --set global.nodeSelector.node-type=kafka > rendered-templates/manifests-node-selector.yaml
 
       - name: 🔒 Security Scan with Checkov
         uses: bridgecrewio/checkov-action@master
@@ -68,12 +79,22 @@ jobs:
         continue-on-error: true
 
       - name: 📤 Upload Checkov Results
-        if: always()
+        if: always() && hashFiles('checkov-results.sarif') != ''
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: checkov-results.sarif
           category: "checkov"
         continue-on-error: true
+        
+      - name: 📋 Display Checkov Results Summary
+        if: always()
+        run: |
+          if [ -f "checkov-results.sarif" ]; then
+            echo "✅ Checkov scan completed. Results file exists."
+            echo "📊 File size: $(ls -lh checkov-results.sarif | awk '{print $5}')"
+          else
+            echo "⚠️ Checkov results file not found. This might be expected if no issues were found."
+          fi
 
   # CodeQL analysis for GitHub Actions workflows
   codeql-analysis:
