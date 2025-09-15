@@ -1,0 +1,129 @@
+{{- if and .Values.monitoring.podMonitor.enabled .Values.kafkaCluster.enabled }}
+{{- $kafkaCluster := .Values.kafkaCluster }}
+{{- $monitoring := .Values.monitoring.podMonitor }}
+---
+# PodMonitor for Kafka brokers (additional pod-level metrics)
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" . }}-kafka-pods
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-pod-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ $kafkaCluster.name | default .Release.Name }}
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ $kafkaCluster.name | default .Release.Name }}-kafka
+  podMetricsEndpoints:
+    - port: tcp-prometheus
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- with $monitoring.namespaceSelector }}
+  namespaceSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+{{- if $kafkaCluster.entityOperator.enabled }}
+---
+# PodMonitor for Entity Operator pods
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" . }}-entity-operator-pods
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" . | nindent 4 }}
+    app.kubernetes.io/component: entity-operator-pod-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ $kafkaCluster.name | default .Release.Name }}
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ $kafkaCluster.name | default .Release.Name }}-entity-operator
+  podMetricsEndpoints:
+    - port: http-healthcheck
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+{{- range .Values.kafkaConnects }}
+{{- if .enabled }}
+---
+# PodMonitor for Kafka Connect pods: {{ .name }}
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" $ }}-connect-pods-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: kafka-connect-pod-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ .name }}
+      strimzi.io/kind: KafkaConnect
+  podMetricsEndpoints:
+    - port: tcp-prometheus
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

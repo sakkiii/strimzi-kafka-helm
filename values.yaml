@@ -286,7 +286,7 @@ kafkaCluster:
     socket.send.buffer.bytes: 1048576
     socket.receive.buffer.bytes: 1048576
     socket.request.max.bytes: 104857600
-    auto.create.topics.enable: true
+    auto.create.topics.enable: false
     # Large message support configuration
     message.max.bytes: 10000000 # 10MB max message size
     replica.fetch.max.bytes: 10485760 # 10MB replica fetch
@@ -409,25 +409,90 @@ hpa:
           averageUtilization: 80
 
 # Kafka Users Configuration
+# Example users with security best practices - uncomment and customize as needed
 kafkaUsers: [] # Array of KafkaUser objects
-  # - name: mm2-user
+  # Example 1: Application Service User (SCRAM-SHA-512 with limited ACLs)
+  # - name: app-service-user
   #   authentication:
   #     type: scram-sha-512
   #   authorization:
   #     type: simple
   #     acls:
-  #       - resource: { type: topic, name: "*", patternType: literal }
+  #       # Read access to specific application topics only
+  #       - resource:
+  #           type: topic
+  #           name: "app-events"
+  #           patternType: literal
   #         operations: [Describe, Read]
   #         host: "*"
-  #       - resource: { type: group, name: "my-group", patternType: literal }
+  #       - resource:
+  #           type: topic
+  #           name: "user-events"
+  #           patternType: literal
+  #         operations: [Describe, Read]
+  #         host: "*"
+  #       # Write access to output topics only
+  #       - resource:
+  #           type: topic
+  #           name: "app-processed-data"
+  #           patternType: literal
+  #         operations: [Describe, Write]
+  #         host: "*"
+  #       # Consumer group access (restricted to app-specific groups)
+  #       - resource:
+  #           type: group
+  #           name: "app-service-*"
+  #           patternType: prefix
   #         operations: [Read]
   #         host: "*"
-  #       - resource: { type: topic, name: "*", patternType: literal }
-  #         operations: [Create, Describe, Write]
+  #
+  # Example 2: Analytics User (Read-only with specific topics)
+  # - name: analytics-user
+  #   authentication:
+  #     type: scram-sha-512
+  #   authorization:
+  #     type: simple
+  #     acls:
+  #       # Read-only access to analytics topics
+  #       - resource:
+  #           type: topic
+  #           name: "analytics-*"
+  #           patternType: prefix
+  #         operations: [Describe, Read]
   #         host: "*"
-  # - name: om-kafka-superuser
+  #       - resource:
+  #           type: group
+  #           name: "analytics-*"
+  #           patternType: prefix
+  #         operations: [Read]
+  #         host: "*"
+  #
+  # Example 3: Admin User (TLS certificate-based, inherits superuser privileges)
+  # - name: kafka-admin
   #   authentication:
   #     type: tls
+  #   # No authorization block = inherits superuser privileges from Kafka config
+  #
+  # Example 4: Monitoring User (Limited read access for metrics)
+  # - name: monitoring-user
+  #   authentication:
+  #     type: scram-sha-512
+  #   authorization:
+  #     type: simple
+  #     acls:
+  #       # Read-only access for monitoring (no data access)
+  #       - resource:
+  #           type: topic
+  #           name: "*"
+  #           patternType: literal
+  #         operations: [Describe]  # Only describe, no read of data
+  #         host: "*"
+  #       - resource:
+  #           type: group
+  #           name: "monitoring-*"
+  #           patternType: prefix
+  #         operations: [Read]
+  #         host: "*"
 
 # Kafka Topics Configuration
 kafkaTopics: [] # Array of KafkaTopic objects
@@ -506,3 +571,28 @@ kafkaRebalances: [] # Array of KafkaRebalance objects
   #     - TopicReplicaDistributionGoal
   #     - LeaderReplicaDistributionGoal
   #     - LeaderBytesInDistributionGoal
+
+# Monitoring Configuration for Prometheus Operator
+monitoring:
+  # ServiceMonitor configuration for scraping Kafka metrics
+  serviceMonitor:
+    enabled: false  # Set to true to create ServiceMonitor resources
+    interval: "30s"  # Scrape interval
+    scrapeTimeout: "10s"  # Scrape timeout
+    labels: {}  # Additional labels for ServiceMonitor
+    annotations: {}  # Additional annotations for ServiceMonitor
+    # namespaceSelector: {}  # Namespace selector for cross-namespace monitoring
+    # targetLabels: []  # Labels to transfer from service to metrics
+    # relabelings: []  # Relabeling rules before scraping
+    # metricRelabelings: []  # Metric relabeling rules after scraping
+  
+  # PodMonitor configuration for scraping pod-level metrics
+  podMonitor:
+    enabled: false  # Set to true to create PodMonitor resources
+    interval: "30s"  # Scrape interval
+    scrapeTimeout: "10s"  # Scrape timeout
+    labels: {}  # Additional labels for PodMonitor
+    annotations: {}  # Additional annotations for PodMonitor
+    # namespaceSelector: {}  # Namespace selector for cross-namespace monitoring
+    # relabelings: []  # Relabeling rules before scraping
+    # metricRelabelings: []  # Metric relabeling rules after scraping

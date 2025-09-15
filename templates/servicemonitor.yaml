@@ -1,0 +1,215 @@
+{{- if and .Values.monitoring.serviceMonitor.enabled .Values.kafkaCluster.enabled }}
+{{- $kafkaCluster := .Values.kafkaCluster }}
+{{- $monitoring := .Values.monitoring.serviceMonitor }}
+---
+# ServiceMonitor for Kafka brokers
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" . }}-kafka
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ $kafkaCluster.name | default .Release.Name }}
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ $kafkaCluster.name | default .Release.Name }}-kafka
+  endpoints:
+    - port: tcp-prometheus
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- with $monitoring.namespaceSelector }}
+  namespaceSelector:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with $monitoring.targetLabels }}
+  targetLabels:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+
+{{- if $kafkaCluster.kafkaExporter.enabled }}
+---
+# ServiceMonitor for Kafka Exporter
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" . }}-kafka-exporter
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kafka-exporter-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ $kafkaCluster.name | default .Release.Name }}
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ $kafkaCluster.name | default .Release.Name }}-kafka-exporter
+  endpoints:
+    - port: http-metrics
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+{{- if $kafkaCluster.cruiseControl.enabled }}
+---
+# ServiceMonitor for Cruise Control
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" . }}-cruise-control
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" . | nindent 4 }}
+    app.kubernetes.io/component: cruise-control-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ $kafkaCluster.name | default .Release.Name }}
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ $kafkaCluster.name | default .Release.Name }}-cruise-control
+  endpoints:
+    - port: tcp-prometheus
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+{{- if $kafkaCluster.entityOperator.enabled }}
+---
+# ServiceMonitor for Entity Operator
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" . }}-entity-operator
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" . | nindent 4 }}
+    app.kubernetes.io/component: entity-operator-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ $kafkaCluster.name | default .Release.Name }}
+      strimzi.io/kind: Kafka
+      strimzi.io/name: {{ $kafkaCluster.name | default .Release.Name }}-entity-operator
+  endpoints:
+    - port: http-healthcheck
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+
+{{- range .Values.kafkaConnects }}
+{{- if .enabled }}
+---
+# ServiceMonitor for Kafka Connect: {{ .name }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "strimzi-kafka.fullname" $ }}-connect-{{ .name }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: kafka-connect-metrics
+    {{- with $monitoring.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $monitoring.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      strimzi.io/cluster: {{ .name }}
+      strimzi.io/kind: KafkaConnect
+  endpoints:
+    - port: tcp-prometheus
+      interval: {{ $monitoring.interval | default "30s" }}
+      path: /metrics
+      {{- with $monitoring.scrapeTimeout }}
+      scrapeTimeout: {{ . }}
+      {{- end }}
+      {{- with $monitoring.relabelings }}
+      relabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with $monitoring.metricRelabelings }}
+      metricRelabelings:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
