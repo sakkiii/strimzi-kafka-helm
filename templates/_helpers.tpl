@@ -89,20 +89,28 @@ nodeSelector:
 {{- end }}
 
 {{/*
-Merge global and component-specific affinity configurations, converting nodeSelector to nodeAffinity
-Usage: {{ include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.nodePools.0.template.pod.affinity "globalNodeSelector" .Values.global.nodeSelector "componentNodeSelector" .Values.kafkaCluster.nodePools.0.template.pod.nodeSelector "context" .) }}
+Unified scheduling configuration: nodeSelector conversion, affinity merging, and topologySpreadConstraints
+Usage: {{ include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector" .Values.global.nodeSelector "affinity" .Values.global.affinity "topologySpreadConstraints" .Values.global.topologySpreadConstraints) "component" (dict "nodeSelector" .Values.component.template.pod.nodeSelector "affinity" .Values.component.template.pod.affinity "topologySpreadConstraints" .Values.component.template.pod.topologySpreadConstraints) "context" .) }}
 */}}
-{{- define "strimzi-kafka.affinity" -}}
-{{- $global := .global -}}
-{{- $component := .component -}}
-{{- $globalNodeSelector := .globalNodeSelector -}}
-{{- $componentNodeSelector := .componentNodeSelector -}}
+{{- define "strimzi-kafka.scheduling" -}}
+{{- $global := .global | default dict -}}
+{{- $component := .component | default dict -}}
 {{- $context := .context -}}
-{{- $result := dict -}}
+
+{{/* Extract individual configurations */}}
+{{- $globalNodeSelector := $global.nodeSelector | default dict -}}
+{{- $globalAffinity := $global.affinity | default dict -}}
+{{- $globalTopologySpread := $global.topologySpreadConstraints | default list -}}
+{{- $componentNodeSelector := $component.nodeSelector | default dict -}}
+{{- $componentAffinity := $component.affinity | default dict -}}
+{{- $componentTopologySpread := $component.topologySpreadConstraints | default list -}}
+
+{{/* Process Affinity (including nodeSelector conversion) */}}
+{{- $affinityResult := dict -}}
 
 {{/* Start with global affinity if it exists */}}
-{{- if $global -}}
-  {{- $result = deepCopy $global -}}
+{{- if $globalAffinity -}}
+  {{- $affinityResult = deepCopy $globalAffinity -}}
 {{- end -}}
 
 {{/* Convert global nodeSelector to nodeAffinity */}}
@@ -114,17 +122,17 @@ Usage: {{ include "strimzi-kafka.affinity" (dict "global" .Values.global.affinit
   {{- end -}}
   {{- if $matchExpressions -}}
     {{- $nodeAffinityFromSelector = dict "requiredDuringSchedulingIgnoredDuringExecution" (dict "nodeSelectorTerms" (list (dict "matchExpressions" $matchExpressions))) -}}
-    {{- if not $result.nodeAffinity -}}
-      {{- $_ := set $result "nodeAffinity" $nodeAffinityFromSelector -}}
+    {{- if not $affinityResult.nodeAffinity -}}
+      {{- $_ := set $affinityResult "nodeAffinity" $nodeAffinityFromSelector -}}
     {{- else -}}
       {{/* Merge with existing nodeAffinity */}}
-      {{- if $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
-        {{- $existingTerms := $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms | default list -}}
+      {{- if $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $existingTerms := $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms | default list -}}
         {{- $newTerms := $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms -}}
         {{- $mergedTerms := concat $existingTerms $newTerms -}}
-        {{- $_ := set $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution "nodeSelectorTerms" $mergedTerms -}}
+        {{- $_ := set $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution "nodeSelectorTerms" $mergedTerms -}}
       {{- else -}}
-        {{- $_ := set $result.nodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $affinityResult.nodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
@@ -139,67 +147,97 @@ Usage: {{ include "strimzi-kafka.affinity" (dict "global" .Values.global.affinit
   {{- end -}}
   {{- if $matchExpressions -}}
     {{- $nodeAffinityFromSelector = dict "requiredDuringSchedulingIgnoredDuringExecution" (dict "nodeSelectorTerms" (list (dict "matchExpressions" $matchExpressions))) -}}
-    {{- if not $result.nodeAffinity -}}
-      {{- $_ := set $result "nodeAffinity" $nodeAffinityFromSelector -}}
+    {{- if not $affinityResult.nodeAffinity -}}
+      {{- $_ := set $affinityResult "nodeAffinity" $nodeAffinityFromSelector -}}
     {{- else -}}
       {{/* Merge with existing nodeAffinity */}}
-      {{- if $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
-        {{- $existingTerms := $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms | default list -}}
+      {{- if $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $existingTerms := $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms | default list -}}
         {{- $newTerms := $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms -}}
         {{- $mergedTerms := concat $existingTerms $newTerms -}}
-        {{- $_ := set $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution "nodeSelectorTerms" $mergedTerms -}}
+        {{- $_ := set $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution "nodeSelectorTerms" $mergedTerms -}}
       {{- else -}}
-        {{- $_ := set $result.nodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $affinityResult.nodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $nodeAffinityFromSelector.requiredDuringSchedulingIgnoredDuringExecution -}}
       {{- end -}}
     {{- end -}}
   {{- end -}}
 {{- end -}}
 
 {{/* Merge with component-specific affinity if it exists */}}
-{{- if $component -}}
-  {{- if $component.nodeAffinity -}}
-    {{- if not $result.nodeAffinity -}}
-      {{- $_ := set $result "nodeAffinity" $component.nodeAffinity -}}
+{{- if $componentAffinity -}}
+  {{- if $componentAffinity.nodeAffinity -}}
+    {{- if not $affinityResult.nodeAffinity -}}
+      {{- $_ := set $affinityResult "nodeAffinity" $componentAffinity.nodeAffinity -}}
     {{- else -}}
       {{/* Merge nodeAffinity - component overrides global */}}
       {{- $mergedNodeAffinity := dict -}}
-      {{- if $component.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
-        {{- $_ := set $mergedNodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $component.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
-      {{- else if $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
-        {{- $_ := set $mergedNodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $result.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+      {{- if $componentAffinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $componentAffinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+      {{- else if $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "requiredDuringSchedulingIgnoredDuringExecution" $affinityResult.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution -}}
       {{- end -}}
-      {{- if $component.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
-        {{- $_ := set $mergedNodeAffinity "preferredDuringSchedulingIgnoredDuringExecution" $component.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
-      {{- else if $result.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
-        {{- $_ := set $mergedNodeAffinity "preferredDuringSchedulingIgnoredDuringExecution" $result.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+      {{- if $componentAffinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "preferredDuringSchedulingIgnoredDuringExecution" $componentAffinity.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+      {{- else if $affinityResult.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
+        {{- $_ := set $mergedNodeAffinity "preferredDuringSchedulingIgnoredDuringExecution" $affinityResult.nodeAffinity.preferredDuringSchedulingIgnoredDuringExecution -}}
       {{- end -}}
-      {{- $_ := set $result "nodeAffinity" $mergedNodeAffinity -}}
+      {{- $_ := set $affinityResult "nodeAffinity" $mergedNodeAffinity -}}
     {{- end -}}
   {{- end -}}
-  {{- if $component.podAffinity -}}
-    {{- $_ := set $result "podAffinity" $component.podAffinity -}}
+  {{- if $componentAffinity.podAffinity -}}
+    {{- $_ := set $affinityResult "podAffinity" $componentAffinity.podAffinity -}}
   {{- end -}}
-  {{- if $component.podAntiAffinity -}}
-    {{- $_ := set $result "podAntiAffinity" $component.podAntiAffinity -}}
+  {{- if $componentAffinity.podAntiAffinity -}}
+    {{- $_ := set $affinityResult "podAntiAffinity" $componentAffinity.podAntiAffinity -}}
   {{- end -}}
 {{- end -}}
 
-{{/* Render the final affinity configuration */}}
-{{- if or $result.nodeAffinity $result.podAffinity $result.podAntiAffinity -}}
+{{/* Process TopologySpreadConstraints */}}
+{{- $topologySpreadResult := list -}}
+
+{{/* Start with global constraints */}}
+{{- if $globalTopologySpread -}}
+  {{- $topologySpreadResult = deepCopy $globalTopologySpread -}}
+{{- end -}}
+
+{{/* Component constraints override global */}}
+{{- if $componentTopologySpread -}}
+  {{- $topologySpreadResult = deepCopy $componentTopologySpread -}}
+{{- end -}}
+
+{{/* Render the final scheduling configuration */}}
+{{- $hasAffinity := or $affinityResult.nodeAffinity $affinityResult.podAffinity $affinityResult.podAntiAffinity -}}
+{{- $hasTopologySpread := gt (len $topologySpreadResult) 0 -}}
+
+{{- if $hasAffinity }}
 affinity:
-  {{- if $result.nodeAffinity }}
+  {{- if $affinityResult.nodeAffinity }}
   nodeAffinity:
-    {{- tpl (toYaml $result.nodeAffinity | nindent 4) $context }}
+    {{- tpl (toYaml $affinityResult.nodeAffinity | nindent 4) $context }}
   {{- end }}
-  {{- if $result.podAffinity }}
+  {{- if $affinityResult.podAffinity }}
   podAffinity:
-    {{- tpl (toYaml $result.podAffinity | nindent 4) $context }}
+    {{- tpl (toYaml $affinityResult.podAffinity | nindent 4) $context }}
   {{- end }}
-  {{- if $result.podAntiAffinity }}
+  {{- if $affinityResult.podAntiAffinity }}
   podAntiAffinity:
-    {{- tpl (toYaml $result.podAntiAffinity | nindent 4) $context }}
+    {{- tpl (toYaml $affinityResult.podAntiAffinity | nindent 4) $context }}
   {{- end }}
 {{- end -}}
+{{- if $hasTopologySpread }}
+topologySpreadConstraints:
+  {{- tpl (toYaml $topologySpreadResult | nindent 2) $context }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Legacy affinity helper for backward compatibility - delegates to unified scheduling function
+Usage: {{ include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" .Values.kafkaCluster.nodePools.0.template.pod.affinity "globalNodeSelector" .Values.global.nodeSelector "componentNodeSelector" .Values.kafkaCluster.nodePools.0.template.pod.nodeSelector "context" .) }}
+*/}}
+{{- define "strimzi-kafka.affinity" -}}
+{{- $globalConfig := dict "nodeSelector" .globalNodeSelector "affinity" .global -}}
+{{- $componentConfig := dict "nodeSelector" .componentNodeSelector "affinity" .component -}}
+{{- include "strimzi-kafka.scheduling" (dict "global" $globalConfig "component" $componentConfig "context" .context) -}}
 {{- end }}
 
 {{/*
