@@ -97,33 +97,5 @@ jobs:
           fi
 
   # CodeQL analysis for GitHub Actions workflows
-  codeql-analysis:
-    name: 🔍 CodeQL Analysis
-    runs-on: ubuntu-latest
-    permissions:
-      security-events: write
-      packages: read
-      actions: read
-      contents: read
-
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - language: 'actions'
-            build-mode: 'none'
-    steps:
-      - name: 📥 Checkout Repository
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
-
-      - name: 🔍 Initialize CodeQL
-        uses: github/codeql-action/init@883d8588e56d1753a8a58c1c86e88976f0c23449 # v3.26.8
-        with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
-          queries: security-extended,security-and-quality
-
-      - name: 🔍 Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@883d8588e56d1753a8a58c1c86e88976f0c23449 # v3.26.8
-        with:
-          category: "/language:${{ matrix.language }}"
+  # CodeQL Analysis is not applicable to Helm charts (YAML templates)
+  # Security analysis is handled by Checkov in the security-analysis job above

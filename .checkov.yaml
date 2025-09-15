@@ -56,10 +56,8 @@ check:
   - CKV_K8S_37  # Minimize the admission of containers with capabilities assigned
 
 # File patterns to include/exclude
-include:
-  - "templates/**/*.yaml"
-  - "values*.yaml"
-  - "Chart.yaml"
+# Note: Using directory instead of specific patterns to avoid argument parsing issues
+directory: .
 
 exclude:
   - ".git/**"
