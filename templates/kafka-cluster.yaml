@@ -46,7 +46,7 @@ spec:
         {{- include "strimzi-kafka.affinity" (dict "global" .Values.global.affinity "component" $componentAffinity "context" .) | nindent 8 }}
         {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" $componentTolerations "context" .) | nindent 8 }}
         {{- end }}
-    {{- if .Values.kafkaCluster.rack }}
+    {{- if and .Values.kafkaCluster.rack .Values.kafkaCluster.rack.enabled }}
     rack:
       topologyKey: {{ .Values.kafkaCluster.rack.topologyKey }}
     {{- end }}
@@ -136,6 +136,9 @@ spec:
         {{- end }}
       {{- end }}
     config:
+      {{- if and .Values.kafkaCluster.rack .Values.kafkaCluster.rack.enabled }}
+      replica.selector.class: org.apache.kafka.common.replica.RackAwareReplicaSelector
+      {{- end }}
       {{- toYaml .Values.kafkaCluster.config | nindent 6 }}
     {{- if .Values.kafkaCluster.metricsConfig.enabled }}
     metricsConfig:
