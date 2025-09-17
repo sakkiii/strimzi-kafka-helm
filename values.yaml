@@ -184,17 +184,18 @@ kafkaCluster:
         xms: "2g"
         xmx: "2g"
       
-      # Storage Configuration
+      # Storage Configuration (Ephemeral by default for development)
+      # For production, change to: type: jbod and volumes[].type: persistent-claim
       storage:
         enabled: true
-        type: jbod
+        type: ephemeral  # Uses emptyDir - data is lost on pod restart
         volumes:
           - id: 1
-            type: persistent-claim
-            size: 100Gi
-            deleteClaim: false
+            type: ephemeral
+            size: 1Gi  # Size for emptyDir (not used but required by schema)
+            deleteClaim: false  # Not applicable for ephemeral
             kraftMetadata: shared
-            storageClass: "" # Optional: specify storage class
+            storageClass: "" # Not applicable for ephemeral
       
       # Pod Template Configuration
       template:
