@@ -171,13 +171,15 @@ kafkaCluster:
       #     limits:
       #       memory: "8Gi"
       #       cpu: "2000m"
+      # Resource configuration (these values are used as defaults in templates)
+      # If you don't specify resources for a node pool, these defaults will be applied automatically
       resources:
         requests:
-          memory: 4Gi
-          cpu: 1
+          memory: 4Gi  # Default memory request
+          cpu: 1       # Default CPU request
         limits:
-          memory: 4Gi
-          cpu: 2
+          memory: 4Gi  # Default memory limit
+          cpu: 2       # Default CPU limit
       jvmOptions:
         xms: "2g"
         xmx: "2g"

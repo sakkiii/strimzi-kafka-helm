@@ -252,11 +252,11 @@ spec:
     {{- end }}
   resources:
     requests:
-      memory: {{ .resources.requests.memory }}
-      cpu: {{ .resources.requests.cpu }}
+      memory: {{ dig "resources" "requests" "memory" "4Gi" . }}
+      cpu: {{ dig "resources" "requests" "cpu" "1" . }}
     limits:
-      memory: {{ .resources.limits.memory }}
-      cpu: {{ .resources.limits.cpu }}
+      memory: {{ dig "resources" "limits" "memory" "4Gi" . }}
+      cpu: {{ dig "resources" "limits" "cpu" "2" . }}
   {{- if .jvmOptions }}
   jvmOptions:
     {{- if .jvmOptions.xms }}

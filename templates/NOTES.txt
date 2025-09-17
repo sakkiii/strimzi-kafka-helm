@@ -30,7 +30,7 @@
 
 4. Create a Kafka client pod for testing:
 
-   kubectl run kafka-client --restart='Never' --image quay.io/strimzi/kafka:0.44.0-kafka-3.9.0 --rm -it --command -- /bin/bash
+   kubectl run kafka-client --restart='Never' --image quay.io/strimzi/kafka:0.47.0-kafka-3.9.0 --rm -it --command -- /bin/bash
 
 5. Test your deployment:
 
@@ -78,12 +78,12 @@
    {{- end }}
    {{- end }}
    
-   {{- if .Values.kafkaUsers }}
-   - Configured users:
-   {{- range .Values.kafkaUsers }}
-     * {{ .name }} ({{ .authentication.type }})
-   {{- end }}
-   {{- end }}
+  {{- if .Values.kafkaUsers }}
+  - Configured users:
+  {{- range .Values.kafkaUsers }}
+    * {{ .name }}{{ if and .authentication .authentication.type }} ({{ .authentication.type }}){{ end }}
+  {{- end }}
+  {{- end }}
 
 9. Scaling Information:
 
