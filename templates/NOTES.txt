@@ -44,6 +44,7 @@
    {{- if .Values.kafkaCluster.kafkaExporter.enabled }}
    - Kafka Exporter metrics: <kafka-exporter-pod>:9308/metrics
    {{- end }}
+   - Metrics ConfigMap: {{ include "strimzi-kafka.fullname" . }}-metrics
 {{- end }}
 
 {{- if .Values.kafkaCluster.cruiseControl.enabled }}

@@ -8,7 +8,7 @@ Each ConfigMap is created only when the respective metrics configuration is enab
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.kafkaCluster.metricsConfig.configMapName }}
+  name: {{ include "strimzi-kafka.fullname" . }}-metrics
   namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
@@ -16,7 +16,7 @@ metadata:
   annotations:
     {{- include "strimzi-kafka.annotations" . | nindent 4 }}
 data:
-  {{ .Values.kafkaCluster.metricsConfig.configMapKey }}: |
+  metrics-config.yml: |
     # Default Kafka JMX Prometheus Exporter Configuration
     # See https://github.com/prometheus/jmx_exporter for more info
     lowercaseOutputName: true
@@ -179,7 +179,7 @@ data:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ .Values.kafkaCluster.cruiseControl.metricsConfig.configMapName }}
+  name: {{ include "strimzi-kafka.fullname" . }}-cruise-control-metrics
   namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
@@ -187,7 +187,7 @@ metadata:
   annotations:
     {{- include "strimzi-kafka.annotations" . | nindent 4 }}
 data:
-  {{ .Values.kafkaCluster.cruiseControl.metricsConfig.configMapKey }}: |
+  metrics-config.yml: |
     # Default Cruise Control JMX Prometheus Exporter Configuration
     # See https://github.com/prometheus/jmx_exporter for more info
     lowercaseOutputName: true

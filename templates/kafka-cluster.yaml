@@ -12,9 +12,6 @@ metadata:
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" . }}
-    {{- with .Values.global.commonLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
   annotations:
     {{- if .Values.kafkaCluster.nodePools }}
     strimzi.io/node-pools: enabled  # Required when KafkaNodePool resources are used
@@ -26,27 +23,26 @@ metadata:
 spec:
   kafka:
     version: {{ .Values.kafkaCluster.version }}
-    replicas: {{ .Values.kafkaCluster.replicas }}
     template:
       pod:
+        {{- $podAnnotations := dict }}
+        {{- with .Values.kafkaCluster.podAnnotations }}
+          {{- $podAnnotations = merge $podAnnotations . }}
+        {{- end }}
+        {{- with .Values.global.commonAnnotations }}
+          {{- $podAnnotations = merge $podAnnotations . }}
+        {{- end }}
+        {{- if $podAnnotations }}
         metadata:
           annotations:
-            oneagent.dynatrace.com/inject: "false"
-            {{- with .Values.global.commonAnnotations }}
-            {{- toYaml . | nindent 12 }}
-            {{- end }}
+            {{- toYaml $podAnnotations | nindent 12 }}
+        {{- end }}
         {{- if .Values.kafkaCluster.nodePools }}
         {{- $nodePool := index .Values.kafkaCluster.nodePools 0 }}
-        {{- $componentAffinity := dict }}
-        {{- $componentNodeSelector := dict }}
-        {{- $componentTopologySpread := list }}
-        {{- $componentTolerations := dict }}
-        {{- if and $nodePool.template $nodePool.template.pod }}
-        {{- $componentAffinity = $nodePool.template.pod.affinity | default dict }}
-        {{- $componentNodeSelector = $nodePool.template.pod.nodeSelector | default dict }}
-        {{- $componentTopologySpread = $nodePool.template.pod.topologySpreadConstraints | default list }}
-        {{- $componentTolerations = $nodePool.template.pod.tolerations | default dict }}
-        {{- end }}
+        {{- $componentAffinity := $nodePool.affinity | default dict }}
+        {{- $componentNodeSelector := $nodePool.nodeSelector | default dict }}
+        {{- $componentTopologySpread := $nodePool.topologySpreadConstraints | default list }}
+        {{- $componentTolerations := $nodePool.tolerations | default list }}
         {{- include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector" .Values.global.nodeSelector "affinity" .Values.global.affinity "topologySpreadConstraints" .Values.global.topologySpreadConstraints) "component" (dict "nodeSelector" $componentNodeSelector "affinity" $componentAffinity "topologySpreadConstraints" $componentTopologySpread) "context" .) | nindent 8 }}
         {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" $componentTolerations "context" .) | nindent 8 }}
         {{- end }}
@@ -91,7 +87,10 @@ spec:
           brokers:
             {{- $maxBrokers := 10 }}
             {{- $hpaEnabled := $.Values.hpa.enabled }}
-            {{- $replicas := $.Values.kafkaCluster.replicas }}
+            {{- $totalReplicas := 0 }}
+            {{- range $.Values.kafkaCluster.nodePools }}
+              {{- $totalReplicas = add $totalReplicas .replicas }}
+            {{- end }}
             {{- if $hpaEnabled }}
               {{- $maxReplicas := $.Values.hpa.maxReplicas }}
               {{- range $i := until (int $maxReplicas) }}
@@ -99,16 +98,20 @@ spec:
               host: {{ printf "broker-%d-%s" $i $listener.configuration.host }}
               {{- if $listener.configuration.annotations }}
               annotations:
-                {{- toYaml $listener.configuration.annotations | nindent 16 }}
+                {{- $brokerAnnotations := deepCopy $listener.configuration.annotations }}
+                {{- $_ := set $brokerAnnotations "external-dns.alpha.kubernetes.io/hostname" (printf "broker-%d-%s" $i $listener.configuration.host) }}
+                {{- toYaml $brokerAnnotations | nindent 16 }}
               {{- end }}
               {{- end }}
             {{- else }}
-              {{- range $i := until (int $replicas) }}
+              {{- range $i := until (int $totalReplicas) }}
             - broker: {{ $i }}
               host: {{ printf "broker-%d-%s" $i $listener.configuration.host }}
               {{- if $listener.configuration.annotations }}
               annotations:
-                {{- toYaml $listener.configuration.annotations | nindent 16 }}
+                {{- $brokerAnnotations := deepCopy $listener.configuration.annotations }}
+                {{- $_ := set $brokerAnnotations "external-dns.alpha.kubernetes.io/hostname" (printf "broker-%d-%s" $i $listener.configuration.host) }}
+                {{- toYaml $brokerAnnotations | nindent 16 }}
               {{- end }}
               {{- end }}
             {{- end }}
@@ -144,22 +147,14 @@ spec:
       replica.selector.class: org.apache.kafka.common.replica.RackAwareReplicaSelector
       {{- end }}
       {{- toYaml .Values.kafkaCluster.config | nindent 6 }}
-    {{- if .Values.kafkaCluster.metricsConfig.enabled }}
-    metricsConfig:
-      type: {{ .Values.kafkaCluster.metricsConfig.type }}
-      valueFrom:
-        configMapKeyRef:
-          name: {{ .Values.kafkaCluster.metricsConfig.configMapName }}
-          key: {{ .Values.kafkaCluster.metricsConfig.configMapKey }}
-    {{- end }}
+    {{- include "strimzi-kafka.metricsConfig" (dict "enabled" .Values.kafkaCluster.metricsConfig.enabled "context" .) | nindent 4 }}
   {{- if .Values.kafkaCluster.entityOperator.enabled }}
   entityOperator:
     topicOperator: {}
     userOperator: {}
     template:
       pod:
-        {{- include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector" .Values.global.nodeSelector "affinity" .Values.global.affinity "topologySpreadConstraints" .Values.global.topologySpreadConstraints) "component" (dict "nodeSelector" .Values.kafkaCluster.entityOperator.template.pod.nodeSelector "affinity" .Values.kafkaCluster.entityOperator.template.pod.affinity "topologySpreadConstraints" .Values.kafkaCluster.entityOperator.template.pod.topologySpreadConstraints) "context" .) | nindent 8 }}
-        {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.entityOperator.template.pod.tolerations "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.podTemplate" (dict "global" .Values.global "component" .Values.kafkaCluster.entityOperator "context" .) | nindent 8 }}
   {{- end }}
   {{- if .Values.kafkaCluster.kafkaExporter.enabled }}
   kafkaExporter:
@@ -174,10 +169,8 @@ spec:
     groupRegex: {{ .Values.kafkaCluster.kafkaExporter.groupRegex | quote }}
     template:
       pod:
-        {{- include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector" .Values.global.nodeSelector "affinity" .Values.global.affinity "topologySpreadConstraints" .Values.global.topologySpreadConstraints) "component" (dict "nodeSelector" .Values.kafkaCluster.kafkaExporter.template.pod.nodeSelector "affinity" .Values.kafkaCluster.kafkaExporter.template.pod.affinity "topologySpreadConstraints" .Values.kafkaCluster.kafkaExporter.template.pod.topologySpreadConstraints) "context" .) | nindent 8 }}
-        {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.kafkaExporter.template.pod.tolerations "context" .) | nindent 8 }}
+        {{- include "strimzi-kafka.podTemplate" (dict "global" .Values.global "component" .Values.kafkaCluster.kafkaExporter "context" .) | nindent 8 }}
   {{- end }}
-  {{- if .Values.kafkaCluster.cruiseControl.enabled }}
   cruiseControl:
     {{- if .Values.kafkaCluster.cruiseControl.autoRebalance.enabled }}
     autoRebalance:
@@ -196,19 +189,10 @@ spec:
         cpu: {{ .Values.kafkaCluster.cruiseControl.resources.limits.cpu }}
     template:
       pod:
-        {{- include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector" .Values.global.nodeSelector "affinity" .Values.global.affinity "topologySpreadConstraints" .Values.global.topologySpreadConstraints) "component" (dict "nodeSelector" .Values.kafkaCluster.cruiseControl.template.pod.nodeSelector "affinity" .Values.kafkaCluster.cruiseControl.template.pod.affinity "topologySpreadConstraints" .Values.kafkaCluster.cruiseControl.template.pod.topologySpreadConstraints) "context" .) | nindent 8 }}
-        {{- include "strimzi-kafka.tolerations" (dict "global" .Values.global.tolerations "component" .Values.kafkaCluster.cruiseControl.template.pod.tolerations "context" .) | nindent 8 }}
-    {{- if .Values.kafkaCluster.cruiseControl.metricsConfig.enabled }}
-    metricsConfig:
-      type: {{ .Values.kafkaCluster.cruiseControl.metricsConfig.type }}
-      valueFrom:
-        configMapKeyRef:
-          name: {{ .Values.kafkaCluster.cruiseControl.metricsConfig.configMapName }}
-          key: {{ .Values.kafkaCluster.cruiseControl.metricsConfig.configMapKey }}
-    {{- end }}
+        {{- include "strimzi-kafka.podTemplate" (dict "global" .Values.global "component" .Values.kafkaCluster.cruiseControl "context" .) | nindent 8 }}
+    {{- include "strimzi-kafka.metricsConfig" (dict "enabled" .Values.kafkaCluster.cruiseControl.metricsConfig.enabled "context" .) | nindent 4 }}
     config:
       {{- toYaml .Values.kafkaCluster.cruiseControl.config | nindent 6 }}
-  {{- end }}
 ---
 {{- range .Values.kafkaCluster.nodePools }}
 apiVersion: kafka.strimzi.io/v1beta2
@@ -219,9 +203,6 @@ metadata:
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
     strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
-    {{- with $.Values.global.commonLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
   annotations:
     {{- if .nextNodeIds }}
     strimzi.io/next-node-ids: "{{ .nextNodeIds }}"
@@ -281,16 +262,20 @@ spec:
         {{- end }}
       {{- end }}
   {{- end }}
-  {{- if .template }}
+  {{/* Check if global scheduling settings are defined */}}
+  {{- $hasGlobalScheduling := or $.Values.global.nodeSelector $.Values.global.affinity $.Values.global.topologySpreadConstraints $.Values.global.tolerations -}}
+  {{- if $hasGlobalScheduling -}}
+    {{/* Check if node pool has any pod template configuration */}}
+    {{- $hasPodConfig := or .nodeSelector .affinity .tolerations .topologySpreadConstraints .terminationGracePeriodSeconds -}}
+    {{- if not $hasPodConfig -}}
+      {{- fail (printf "Global scheduling settings are defined but node pool '%s' is missing pod template configuration. Please add nodeSelector, affinity, tolerations, or topologySpreadConstraints to inherit global settings." .name) -}}
+    {{- end -}}
+  {{- end -}}
+  
+  {{- if or .nodeSelector .affinity .tolerations .topologySpreadConstraints .terminationGracePeriodSeconds }}
   template:
-    {{- if .template.pod }}
     pod:
-      {{- if .template.pod.terminationGracePeriodSeconds }}
-      terminationGracePeriodSeconds: {{ .template.pod.terminationGracePeriodSeconds }}
-      {{- end }}
-      {{- include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector" $.Values.global.nodeSelector "affinity" $.Values.global.affinity "topologySpreadConstraints" $.Values.global.topologySpreadConstraints) "component" (dict "nodeSelector" (.template.pod.nodeSelector | default dict) "affinity" (.template.pod.affinity | default dict) "topologySpreadConstraints" (.template.pod.topologySpreadConstraints | default list)) "context" $) | nindent 6 }}
-      {{- include "strimzi-kafka.tolerations" (dict "global" $.Values.global.tolerations "component" (.template.pod.tolerations | default dict) "context" $) | nindent 6 }}
-    {{- end }}
+      {{- include "strimzi-kafka.podTemplate" (dict "global" $.Values.global "component" . "context" $) | nindent 6 }}
   {{- end }}
 ---
 {{- end }}

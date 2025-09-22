@@ -165,7 +165,7 @@ Usage: {{ include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector"
 
 {{/* Merge with component-specific affinity if it exists */}}
 {{- if $componentAffinity -}}
-  {{- if $componentAffinity.nodeAffinity -}}
+  {{- if and (kindIs "map" $componentAffinity) $componentAffinity.nodeAffinity -}}
     {{- if not $affinityResult.nodeAffinity -}}
       {{- $_ := set $affinityResult "nodeAffinity" $componentAffinity.nodeAffinity -}}
     {{- else -}}
@@ -184,10 +184,10 @@ Usage: {{ include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector"
       {{- $_ := set $affinityResult "nodeAffinity" $mergedNodeAffinity -}}
     {{- end -}}
   {{- end -}}
-  {{- if $componentAffinity.podAffinity -}}
+  {{- if and (kindIs "map" $componentAffinity) $componentAffinity.podAffinity -}}
     {{- $_ := set $affinityResult "podAffinity" $componentAffinity.podAffinity -}}
   {{- end -}}
-  {{- if $componentAffinity.podAntiAffinity -}}
+  {{- if and (kindIs "map" $componentAffinity) $componentAffinity.podAntiAffinity -}}
     {{- $_ := set $affinityResult "podAntiAffinity" $componentAffinity.podAntiAffinity -}}
   {{- end -}}
 {{- end -}}
@@ -625,11 +625,11 @@ Generate metrics configuration
 {{- define "strimzi-kafka.metricsConfig" -}}
 {{- if .enabled }}
 metricsConfig:
-  type: {{ .type }}
+  type: jmxPrometheusExporter
   valueFrom:
     configMapKeyRef:
-      name: {{ .configMapName }}
-      key: {{ .configMapKey }}
+      name: {{ include "strimzi-kafka.fullname" .context }}-metrics
+      key: metrics-config.yml
 {{- end }}
 {{- end }}
 
@@ -763,5 +763,44 @@ Generate Kafka configuration with large message support
 {{- define "strimzi-kafka.kafkaConfig" -}}
 {{- range $key, $value := .Values.kafkaCluster.config }}
 {{ $key }}: {{ $value }}
+{{- end }}
+{{- end }}
+
+{{/*
+Generate pod template configuration for any Strimzi resource
+Usage: {{ include "strimzi-kafka.podTemplate" (dict "global" .Values.global "component" .Values.component.template.pod "context" .) }}
+*/}}
+{{- define "strimzi-kafka.podTemplate" -}}
+{{- $global := .global | default dict -}}
+{{- $component := .component | default dict -}}
+{{- $context := .context -}}
+
+{{/* Extract global scheduling configurations */}}
+{{- $globalNodeSelector := $global.nodeSelector | default dict -}}
+{{- $globalAffinity := $global.affinity | default dict -}}
+{{- $globalTopologySpread := $global.topologySpreadConstraints | default list -}}
+{{- $globalTolerations := $global.tolerations | default list -}}
+
+{{/* Extract component-specific configurations */}}
+{{- $componentNodeSelector := $component.nodeSelector | default dict -}}
+{{- $componentAffinity := $component.affinity | default dict -}}
+{{- $componentTopologySpread := $component.topologySpreadConstraints | default list -}}
+{{- $componentTolerations := $component.tolerations | default list -}}
+
+{{/* Process terminationGracePeriodSeconds */}}
+{{- if $component.terminationGracePeriodSeconds }}
+terminationGracePeriodSeconds: {{ $component.terminationGracePeriodSeconds }}
+{{- end }}
+
+{{/* Process scheduling configuration using unified helper */}}
+{{- $scheduling := include "strimzi-kafka.scheduling" (dict "global" (dict "nodeSelector" $globalNodeSelector "affinity" $globalAffinity "topologySpreadConstraints" $globalTopologySpread) "component" (dict "nodeSelector" $componentNodeSelector "affinity" $componentAffinity "topologySpreadConstraints" $componentTopologySpread) "context" $context) -}}
+{{- if $scheduling }}
+{{- $scheduling | trim }}
+{{- end }}
+
+{{/* Process tolerations using unified helper */}}
+{{- $tolerations := include "strimzi-kafka.tolerations" (dict "global" $globalTolerations "component" $componentTolerations "context" $context) -}}
+{{- if $tolerations }}
+{{- $tolerations | trim }}
 {{- end }}
 {{- end }}

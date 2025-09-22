@@ -22,6 +22,12 @@ global:
   commonLabels: {}
   # Common annotations applied to all resources
   commonAnnotations: {}
+
+# Strimzi Kafka Operator dependency configuration
+# NOTE: The operator should typically be installed separately as a cluster-wide component
+# Set to true only if you want to install the operator through this chart
+strimzi-kafka-operator:
+  enabled: false
   
   # Global Node Selection - Simple and flexible (applied to all components unless overridden)
   # NOTE: nodeSelector will be automatically converted to nodeAffinity for Strimzi compatibility
@@ -120,8 +126,8 @@ kafkaCluster:
   # Kafka Version Configuration
   version: "3.9.0" # Kafka version (3.8.0, 3.9.0, etc.)
   
-  # Replica Configuration
-  replicas: 3 # Number of Kafka brokers
+  # Replica Configuration is now managed by KafkaNodePools
+  # replicas: 3 # Removed - use nodePools instead
   
   # Kafka Image Configuration
   # Override global image settings for Kafka-specific components
@@ -133,6 +139,13 @@ kafkaCluster:
     pullSecrets: [] # Additional pull secrets for Kafka components
       # - name: "kafka-registry-secret"
   
+  # Pod Template Configuration
+  # Pod annotations for Kafka components (inherits from global.commonAnnotations if not specified)
+  podAnnotations: {}
+    # Example annotations:
+    # oneagent.dynatrace.com/inject: "false"
+    # prometheus.io/scrape: "true"
+    # prometheus.io/port: "9404"
   
   # Node Pools Configuration - Flexible role assignment for KRaft mode
   # Supported roles: broker, controller, or both (dual-role)
@@ -197,14 +210,14 @@ kafkaCluster:
             kraftMetadata: shared
             storageClass: "" # Not applicable for ephemeral
       
-      # Pod Template Configuration
-      template:
-        pod:
-          terminationGracePeriodSeconds: 60
-          # Affinity and Tolerations are inherited from global configuration
-          # Override here only if component-specific settings are needed
-          affinity: {}
-          tolerations: []
+      # Pod Template Configuration - Direct properties for easier configuration
+      terminationGracePeriodSeconds: 60
+      # Scheduling Configuration - inherited from global configuration
+      # Override here only if component-specific settings are needed
+      nodeSelector: {}
+      affinity: {}
+      tolerations: []
+      topologySpreadConstraints: []
   
   # Listeners Configuration - Flexible list-based approach
   # Each listener can be customized with different types, ports, and authentication
@@ -319,20 +332,19 @@ kafkaCluster:
   # Optional Metrics Configuration
   metricsConfig:
     enabled: true
-    type: jmxPrometheusExporter
-    configMapName: kafka-metrics
-    configMapKey: kafka-metrics-config.yml
 
   # Entity Operator Configuration
   entityOperator:
     enabled: true
     topicOperator: {}
     userOperator: {}
-    template:
-      pod:
-        # Affinity and Tolerations inherited from global configuration
-        affinity: {}
-        tolerations: []
+    # Pod Template Configuration - Direct properties for easier configuration
+    terminationGracePeriodSeconds: 60
+    # Scheduling Configuration - inherited from global configuration
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    topologySpreadConstraints: []
 
   # Optional Kafka Exporter Configuration
   kafkaExporter:
@@ -346,15 +358,16 @@ kafkaCluster:
         memory: 1024Mi
     topicRegex: ".*"
     groupRegex: ".*"
-    template:
-      pod:
-        # Affinity and Tolerations inherited from global configuration
-        affinity: {}
-        tolerations: []
+    # Pod Template Configuration - Direct properties for easier configuration
+    terminationGracePeriodSeconds: 60
+    # Scheduling Configuration - inherited from global configuration
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    topologySpreadConstraints: []
 
-  # Optional Cruise Control Configuration
+  # Cruise Control Configuration (always enabled)
   cruiseControl:
-    enabled: true
     autoRebalance:
       enabled: true
       modes:
@@ -369,16 +382,15 @@ kafkaCluster:
       limits:
         memory: 2Gi
         cpu: 2
-    template:
-      pod:
-        # Affinity and Tolerations inherited from global configuration
-        affinity: {}
-        tolerations: []
+    # Pod Template Configuration - Direct properties for easier configuration
+    terminationGracePeriodSeconds: 60
+    # Scheduling Configuration - inherited from global configuration
+    nodeSelector: {}
+    affinity: {}
+    tolerations: []
+    topologySpreadConstraints: []
     metricsConfig:
       enabled: true
-      type: jmxPrometheusExporter
-      configMapName: cruise-control-metrics
-      configMapKey: cruise-control-metrics-config.yml
     config:
       goals: >
         com.linkedin.kafka.cruisecontrol.analyzer.goals.MinTopicLeadersPerBrokerGoal,
@@ -578,9 +590,14 @@ kafkaConnects: [] # Array of KafkaConnect objects
   #           - type: zip
   #             url: https://github.com/Aiven-Open/opensearch-connector-for-apache-kafka/releases/download/v3.1.1/opensearch-connector-for-apache-kafka-3.1.1.zip
   #   metricsConfig:
-  #     type: jmxPrometheusExporter
-  #     configMapName: connect-metrics
-  #     configMapKey: metrics-config.yml
+  #     enabled: true
+  #   # Pod Template Configuration - Direct properties for easier configuration
+  #   terminationGracePeriodSeconds: 60
+  #   # Scheduling Configuration - inherited from global configuration
+  #   nodeSelector: {}
+  #   affinity: {}
+  #   tolerations: []
+  #   topologySpreadConstraints: []
 
 # Optional Kafka Rebalance Configuration
 kafkaRebalances: [] # Array of KafkaRebalance objects

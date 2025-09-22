@@ -1,17 +1,13 @@
-{{- range $clusterName, $cluster := .Values.kafkaClusters }}
-{{- if and $cluster.enabled $cluster.kafkaUsers }}
-{{- $clusterContext := dict "clusterName" $clusterName "context" $ }}
-{{- range $cluster.kafkaUsers }}
+{{- if .Values.kafkaUsers }}
+{{- range .Values.kafkaUsers }}
 ---
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaUser
 metadata:
   name: {{ .name }}
-  namespace: {{ $cluster.namespace }}
+  namespace: {{ $.Release.Namespace }}
   labels:
-    {{- include "strimzi-kafka-multi-cluster.clusterLabels" $clusterContext | nindent 4 }}
-  annotations:
-    {{- include "strimzi-kafka-multi-cluster.annotations" $ | nindent 4 }}
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
 spec:
   {{- if .authentication }}
   authentication:
@@ -29,7 +25,17 @@ spec:
     type: {{ .authorization.type }}
     {{- if .authorization.acls }}
     acls:
-      {{- include "strimzi-kafka-multi-cluster.aclRules" .authorization.acls | nindent 6 }}
+      {{- range .authorization.acls }}
+      - resource:
+          type: {{ .resource.type }}
+          name: {{ .resource.name | quote }}
+          patternType: {{ .resource.patternType }}
+        operations:
+          {{- range .operations }}
+          - {{ . | quote }}
+          {{- end }}
+        host: {{ .host | quote }}
+      {{- end }}
     {{- end }}
   {{- end }}
   {{- if .quotas }}
@@ -46,5 +52,3 @@ spec:
   {{- end }}
 {{- end }}
 {{- end }}
-{{- end }}
-
