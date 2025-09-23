@@ -628,7 +628,7 @@ metricsConfig:
   type: jmxPrometheusExporter
   valueFrom:
     configMapKeyRef:
-      name: {{ include "strimzi-kafka.fullname" .context }}-metrics
+      name: {{ include "strimzi-kafka.fullname" .context }}{{ if .component }}-{{ .component }}{{ end }}-metrics
       key: metrics-config.yml
 {{- end }}
 {{- end }}

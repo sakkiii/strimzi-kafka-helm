@@ -190,7 +190,7 @@ spec:
     template:
       pod:
         {{- include "strimzi-kafka.podTemplate" (dict "global" .Values.global "component" .Values.kafkaCluster.cruiseControl "context" .) | nindent 8 }}
-    {{- include "strimzi-kafka.metricsConfig" (dict "enabled" .Values.kafkaCluster.cruiseControl.metricsConfig.enabled "context" .) | nindent 4 }}
+    {{- include "strimzi-kafka.metricsConfig" (dict "enabled" .Values.kafkaCluster.cruiseControl.metricsConfig.enabled "context" . "component" "cruise-control") | nindent 4 }}
     config:
       {{- toYaml .Values.kafkaCluster.cruiseControl.config | nindent 6 }}
 ---
