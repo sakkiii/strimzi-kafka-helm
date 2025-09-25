@@ -13,8 +13,10 @@ metadata:
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: kafka-metrics
+  {{- with .Values.global.commonAnnotations }}
   annotations:
-    {{- include "strimzi-kafka.annotations" . | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 data:
   metrics-config.yml: |
     # Default Kafka JMX Prometheus Exporter Configuration
@@ -184,8 +186,10 @@ metadata:
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: cruise-control-metrics
+  {{- with .Values.global.commonAnnotations }}
   annotations:
-    {{- include "strimzi-kafka.annotations" . | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
 data:
   metrics-config.yml: |
     # Default Cruise Control JMX Prometheus Exporter Configuration
