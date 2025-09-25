@@ -8,6 +8,7 @@ metadata:
   namespace: {{ $.Release.Namespace }}
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
 spec:
   {{- if .authentication }}
   authentication:
