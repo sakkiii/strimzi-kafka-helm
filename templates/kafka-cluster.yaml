@@ -117,12 +117,10 @@ spec:
             {{- end }}
           {{- end }}
           {{- if .configuration.tls }}
-          {{- if .configuration.tls.brokerSecretName }}
           brokerCertChainAndKey:
-            secretName: {{ include "strimzi-kafka.secretName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "secretName" .configuration.tls.brokerSecretName) }}
-            certificate: {{ .configuration.tls.brokerCertificate | default "tls.crt" }}
-            key: {{ .configuration.tls.brokerKey | default "tls.key" }}
-          {{- end }}
+            secretName: {{ include "strimzi-kafka.secretName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "secretName" (.configuration.tls.brokerSecretName | default .configuration.tls.secretName | default "kafka-tls-secret")) }}
+            certificate: {{ .configuration.tls.brokerCertificate | default .configuration.tls.certificate | default "tls.crt" }}
+            key: {{ .configuration.tls.brokerKey | default .configuration.tls.key | default "tls.key" }}
           {{- end }}
           {{- else if eq .type "loadbalancer" }}
           {{- if .configuration.loadBalancerSourceRanges }}
@@ -190,7 +188,7 @@ spec:
     template:
       pod:
         {{- include "strimzi-kafka.podTemplate" (dict "global" .Values.global "component" .Values.kafkaCluster.cruiseControl "context" .) | nindent 8 }}
-    {{- include "strimzi-kafka.metricsConfig" (dict "enabled" .Values.kafkaCluster.cruiseControl.metricsConfig.enabled "context" . "component" "cruise-control") | nindent 4 }}
+    {{- include "strimzi-kafka.metricsConfig" (dict "enabled" (and .Values.kafkaCluster.metricsConfig.enabled .Values.kafkaCluster.cruiseControl.metricsConfig.enabled) "context" . "component" "cruise-control") | nindent 4 }}
     config:
       {{- toYaml .Values.kafkaCluster.cruiseControl.config | nindent 6 }}
 ---
@@ -223,7 +221,8 @@ metadata:
     {{- end }}
     {{- end }}
     {{- with $.Values.global.commonAnnotations }}
-    {{- toYaml . | nindent 4 }}
+    annotations:
+      {{- toYaml . | nindent 6 }}
     {{- end }}
 spec:
   replicas: {{ .replicas }}

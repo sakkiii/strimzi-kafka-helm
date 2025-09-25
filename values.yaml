@@ -260,9 +260,14 @@ kafkaCluster:
     #     # TLS Configuration
     #     tls:
     #       secretName: "kafka-tls-secret"  # Will be prefixed with cluster name
-    #       brokerSecretName: "kafka-broker-tls"  # Will be prefixed with cluster name
-    #       brokerCertificate: tls.crt
-    #       brokerKey: tls.key
+    #       certificate: tls.crt  # Default certificate key in the secret
+    #       key: tls.key  # Default key in the secret
+    #       # Optional: Use different secret for broker internal TLS (if not specified, uses secretName)
+    #       # brokerSecretName: "kafka-broker-tls"  # Will be prefixed with cluster name
+    #       # Note: In most cases, use the same secret for both listener and broker TLS
+    #       # Only specify brokerSecretName if you need different certificates for internal vs external communication
+    #       certificate: tls.crt  # Broker certificate key (same as listener by default)
+    #       key: tls.key  # Broker key (same as listener by default)
     
     # Example: External LoadBalancer Listener (disabled by default)
     # - name: "loadbalancer"

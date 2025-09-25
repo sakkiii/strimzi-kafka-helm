@@ -18,9 +18,6 @@ metadata:
     strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
     strimzi.io/nodepool: {{ .name }}
     app.kubernetes.io/component: kafka-nodepool-hpa
-    {{- with $.Values.global.commonLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
   annotations:
     description: "⚠️ HPA for Kafka NodePool {{ .name }} - USE WITH CAUTION!"
     warning: "Scaling Kafka nodes can cause data loss if not properly managed"
@@ -32,7 +29,7 @@ spec:
   scaleTargetRef:
     apiVersion: kafka.strimzi.io/v1beta2
     kind: KafkaNodePool
-    name: {{ .name }}
+    name: {{ include "strimzi-kafka.nodePoolName" (dict "name" .name "Values" $.Values "Release" $.Release "Chart" $.Chart) }}
   minReplicas: {{ (.hpa).minReplicas | default $.Values.hpa.minReplicas }}
   maxReplicas: {{ (.hpa).maxReplicas | default $.Values.hpa.maxReplicas }}
   metrics:
@@ -77,9 +74,6 @@ metadata:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
     strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
     app.kubernetes.io/component: kafka-connect-hpa
-    {{- with $.Values.global.commonLabels }}
-    {{- toYaml . | nindent 4 }}
-    {{- end }}
   annotations:
     description: "HPA for Kafka Connect {{ .name }} - safer than broker scaling"
     {{- with $.Values.global.commonAnnotations }}
