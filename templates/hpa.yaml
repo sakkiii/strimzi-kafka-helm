@@ -11,7 +11,7 @@
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ .name }}-hpa
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" $.Release "componentType" "hpa" "componentName" .name) }}
   namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
@@ -68,7 +68,7 @@ spec:
 apiVersion: autoscaling/v2
 kind: HorizontalPodAutoscaler
 metadata:
-  name: {{ .name }}-connect-hpa
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" $.Release "componentType" "connect-hpa" "componentName" .name) }}
   namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}

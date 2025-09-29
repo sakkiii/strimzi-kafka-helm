@@ -7,7 +7,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" . }}-kafka
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: kafka-metrics
@@ -55,7 +55,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" . }}-kafka-exporter
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: kafka-exporter-metrics
@@ -96,7 +96,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" . }}-cruise-control
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: cruise-control-metrics
@@ -137,7 +137,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" . }}-entity-operator
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: entity-operator-metrics
@@ -179,7 +179,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" $ }}-connect-{{ .name }}
-  namespace: {{ $.Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
     app.kubernetes.io/component: kafka-connect-metrics

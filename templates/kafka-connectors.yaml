@@ -1,0 +1,40 @@
+{{- if .Values.kafkaConnectors }}
+{{- range .Values.kafkaConnectors }}
+---
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" $.Release "componentType" "connector" "componentName" .name) }}
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
+  labels:
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    strimzi.io/cluster: {{ .kafkaConnect | default (include "strimzi-kafka.clusterName" $) }}
+    strimzi.io/kind: KafkaConnector
+  {{- with $.Values.global.commonAnnotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  class: {{ .class }}
+  {{- if .tasksMax }}
+  tasksMax: {{ .tasksMax }}
+  {{- end }}
+  {{- if .config }}
+  config:
+    {{- toYaml .config | nindent 4 }}
+  {{- end }}
+  {{- if .state }}
+  state: {{ .state }}
+  {{- end }}
+  {{- if .pause }}
+  pause: {{ .pause }}
+  {{- end }}
+  {{- if .autoRestart }}
+  autoRestart:
+    enabled: {{ .autoRestart.enabled | default true }}
+    {{- if .autoRestart.maxRestarts }}
+    maxRestarts: {{ .autoRestart.maxRestarts }}
+    {{- end }}
+  {{- end }}
+{{- end }}
+{{- end }}

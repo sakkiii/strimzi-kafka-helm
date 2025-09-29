@@ -1,102 +1,116 @@
-{{- range $clusterName, $cluster := .Values.kafkaClusters }}
-{{- if and $cluster.enabled $cluster.kafkaConnect }}
-{{- $clusterContext := dict "clusterName" $clusterName "context" $ }}
-{{- range $cluster.kafkaConnect }}
+{{- if .Values.kafkaConnects }}
+{{- range .Values.kafkaConnects }}
 ---
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaConnect
 metadata:
-  name: {{ .name }}
-  namespace: {{ $cluster.namespace }}
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" $.Release "componentType" "connect" "componentName" .name) }}
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
-    {{- include "strimzi-kafka-multi-cluster.clusterLabels" $clusterContext | nindent 4 }}
-    strimzi.io/cluster: {{ .name }}
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
   annotations:
     strimzi.io/use-connector-resources: "true"
-    {{- include "strimzi-kafka-multi-cluster.annotations" $ | nindent 4 }}
+    {{- with $.Values.global.commonAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
-  {{- if .replicas }}
-  replicas: {{ .replicas }}
-  {{- end }}
-  {{- if .version }}
-  version: {{ .version }}
+  version: {{ .version | default (include "strimzi-kafka.kafkaVersion" $) }}
+  replicas: {{ .replicas | default 1 }}
+  image: {{ include "strimzi-kafka.image" (dict "component" .image "imageName" "kafka-connect" "global" $.Values.global "context" $) }}
+  {{- if .build }}
+  build:
+    {{- toYaml .build | nindent 4 }}
   {{- end }}
   {{- if .resources }}
   resources:
-    {{- if .resources.requests }}
-    requests:
-      {{- if .resources.requests.memory }}
-      memory: {{ .resources.requests.memory }}
-      {{- end }}
-      {{- if .resources.requests.cpu }}
-      cpu: {{ .resources.requests.cpu }}
-      {{- end }}
-    {{- end }}
-    {{- if .resources.limits }}
-    limits:
-      {{- if .resources.limits.memory }}
-      memory: {{ .resources.limits.memory }}
-      {{- end }}
-      {{- if .resources.limits.cpu }}
-      cpu: {{ .resources.limits.cpu }}
-      {{- end }}
-    {{- end }}
+    {{- toYaml .resources | nindent 4 }}
   {{- end }}
-  {{- if .bootstrapServers }}
-  bootstrapServers: {{ .bootstrapServers }}
-  {{- end }}
-  {{- if .rack }}
+  bootstrapServers: {{ .bootstrapServers | default (printf "%s-kafka-bootstrap:9095" (include "strimzi-kafka.clusterName" $)) }}
+  {{- if or (and $.Values.kafkaCluster.rackAwareness $.Values.kafkaCluster.rackAwareness.enabled) .rack }}
   rack:
-    topologyKey: {{ .rack.topologyKey }}
+    topologyKey: {{ .rack.topologyKey | default $.Values.kafkaCluster.rackAwareness.topologyKey }}
   {{- end }}
-  {{- if .config }}
   config:
+    group.id: {{ dig "config" "groupId" (printf "%s-connect-cluster" (include "strimzi-kafka.clusterName" $)) . }}
+    config.storage.topic: {{ dig "config" "configStorageTopic" (printf "%s-connect-configs" (include "strimzi-kafka.clusterName" $)) . }}
+    offset.storage.topic: {{ dig "config" "offsetStorageTopic" (printf "%s-connect-offsets" (include "strimzi-kafka.clusterName" $)) . }}
+    status.storage.topic: {{ dig "config" "statusStorageTopic" (printf "%s-connect-status" (include "strimzi-kafka.clusterName" $)) . }}
+    key.converter: {{ dig "config" "keyConverter" "org.apache.kafka.connect.storage.StringConverter" . }}
+    value.converter: {{ dig "config" "valueConverter" "org.apache.kafka.connect.json.JsonConverter" . }}
+    value.converter.schemas.enable: {{ dig "config" "valueConverterSchemasEnable" "false" . }}
+    {{- if .config }}
     {{- range $key, $value := .config }}
+    {{- if not (has $key (list "groupId" "configStorageTopic" "offsetStorageTopic" "statusStorageTopic" "keyConverter" "valueConverter" "valueConverterSchemasEnable")) }}
     {{ $key }}: {{ $value | quote }}
     {{- end }}
-  {{- end }}
-  {{- if .tls }}
-  tls:
-    {{- if .tls.trustedCertificates }}
-    trustedCertificates:
-      {{- include "strimzi-kafka-multi-cluster.trustedCertificates" .tls.trustedCertificates | nindent 6 }}
     {{- end }}
+    {{- end }}
+  {{- if or .tls $.Values.kafkaCluster.listeners }}
+  tls:
+    trustedCertificates:
+      {{- if dig "tls" "trustedCertificates" nil . }}
+      {{- range .tls.trustedCertificates }}
+      - secretName: {{ .secretName }}
+        {{- if .pattern }}
+        pattern: {{ .pattern }}
+        {{- end }}
+      {{- end }}
+      {{- else }}
+      # Auto-generate TLS config from cluster TLS listeners
+      {{- range $.Values.kafkaCluster.listeners }}
+      {{- if .tls }}
+      - secretName: {{ include "strimzi-kafka.secretName" (dict "Values" $.Values "Release" $.Release "Chart" $.Chart "secretName" (dig "configuration" "tls" "secretName" "kafka-tls-secret" .)) }}
+        pattern: "*.crt"
+      {{- end }}
+      {{- end }}
+      {{- end }}
   {{- end }}
-  {{- if .authentication }}
+  {{- if or .authentication $.Values.kafkaCluster.listeners }}
   authentication:
+    {{- if .authentication }}
     type: {{ .authentication.type }}
-    {{- if .authentication.username }}
+    {{- if dig "authentication" "username" nil . }}
     username: {{ .authentication.username }}
     {{- end }}
-    {{- if .authentication.passwordSecret }}
+    {{- if dig "authentication" "passwordSecret" nil . }}
     passwordSecret:
       secretName: {{ .authentication.passwordSecret.secretName }}
       password: {{ .authentication.passwordSecret.password }}
     {{- end }}
-  {{- end }}
-  {{- if .build }}
-  build:
-    {{- if .build.output }}
-    output:
-      type: {{ .build.output.type }}
-      {{- if .build.output.image }}
-      image: {{ .build.output.image }}
-      {{- end }}
+    {{- if dig "authentication" "certificateAndKey" nil . }}
+    certificateAndKey:
+      secretName: {{ .authentication.certificateAndKey.secretName }}
+      certificate: {{ .authentication.certificateAndKey.certificate }}
+      key: {{ .authentication.certificateAndKey.key }}
     {{- end }}
-    {{- if .build.plugins }}
-    plugins:
-      {{- include "strimzi-kafka-multi-cluster.connectPlugins" .build.plugins | nindent 6 }}
+    {{- else }}
+    # Auto-generate authentication from cluster SCRAM-SHA-512 listeners
+    {{- $hasScramListener := false }}
+    {{- range $.Values.kafkaCluster.listeners }}
+    {{- if and (dig "authentication" nil .) (eq (dig "authentication" "type" "" .) "scram-sha-512") }}
+    {{- $hasScramListener = true }}
+    type: scram-sha-512
+    username: {{ dig "authentication" "username" (printf "%s-connect-user" (include "strimzi-kafka.clusterName" $)) . }}
+    passwordSecret:
+      secretName: {{ dig "authentication" "passwordSecret" "secretName" (printf "%s-connect-secret" (include "strimzi-kafka.clusterName" $)) . }}
+      password: {{ dig "authentication" "passwordSecret" "password" "password" . }}
+    {{- break }}
+    {{- end }}
+    {{- end }}
+    {{- if not $hasScramListener }}
+    # Fallback to TLS authentication if no SCRAM listener found
+    type: tls
+    {{- end }}
     {{- end }}
   {{- end }}
-  {{- if .metricsConfig }}
+  {{- if dig "metricsConfig" "enabled" true . }}
   metricsConfig:
-    type: {{ .metricsConfig.type }}
-    {{- if .metricsConfig.valueFrom }}
+    type: jmxPrometheusExporter
     valueFrom:
       configMapKeyRef:
-        name: {{ .metricsConfig.valueFrom.configMapKeyRef.name }}
-        key: {{ .metricsConfig.valueFrom.configMapKeyRef.key }}
-    {{- end }}
+        name: {{ include "strimzi-kafka.fullname" $ }}-kafka-connect-metrics
+        key: metrics-config.yml
   {{- end }}
   {{- if or .nodeSelector .affinity .tolerations .topologySpreadConstraints .terminationGracePeriodSeconds }}
   template:
@@ -105,5 +119,3 @@ spec:
   {{- end }}
 {{- end }}
 {{- end }}
-{{- end }}
-

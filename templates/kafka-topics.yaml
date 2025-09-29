@@ -4,8 +4,8 @@
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaTopic
 metadata:
-  name: {{ .name }}
-  namespace: {{ $.Release.Namespace }}
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" $.Release "componentType" "topic" "componentName" .name) }}
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
     strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}

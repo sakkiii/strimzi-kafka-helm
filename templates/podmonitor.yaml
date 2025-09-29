@@ -7,7 +7,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" . }}-kafka-pods
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: kafka-pod-metrics
@@ -51,7 +51,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" . }}-entity-operator-pods
-  namespace: {{ .Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
     app.kubernetes.io/component: entity-operator-pod-metrics
@@ -93,7 +93,7 @@ apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
   name: {{ include "strimzi-kafka.fullname" $ }}-connect-pods-{{ .name }}
-  namespace: {{ $.Release.Namespace }}
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}
     app.kubernetes.io/component: kafka-connect-pod-metrics

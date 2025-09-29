@@ -7,7 +7,7 @@ This is automatically added below when .Values.kafkaCluster.nodePools is defined
 apiVersion: kafka.strimzi.io/v1beta2
 kind: Kafka
 metadata:
-  name: {{ include "strimzi-kafka.clusterName" . }}
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" .Release "componentType" "cluster" "componentName" "main") }}
   namespace: {{ include "strimzi-kafka.namespace" . }}
   labels:
     {{- include "strimzi-kafka.labels" . | nindent 4 }}
@@ -196,7 +196,7 @@ spec:
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaNodePool
 metadata:
-  name: {{ include "strimzi-kafka.nodePoolName" (dict "name" .name "Values" $.Values "Release" $.Release "Chart" $.Chart) }}
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" $.Release "componentType" "nodepool" "componentName" .name) }}
   namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
     {{- include "strimzi-kafka.labels" $ | nindent 4 }}

@@ -407,6 +407,27 @@ Global values for clusterName - defaults to Release.Name if not specified
 {{- end }}
 
 {{/*
+Create a uniform resource name with release prefix
+Pattern: {release-name}-kafka-{component-type}-{component-name}
+*/}}
+{{- define "strimzi-kafka.resourceName" -}}
+{{- $releaseName := .Release.Name -}}
+{{- $componentType := .componentType -}}
+{{- $componentName := .componentName -}}
+{{- printf "%s-kafka-%s-%s" $releaseName $componentType $componentName | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
+Create a uniform ConfigMap name for metrics
+Pattern: {release-name}-kafka-{component}-metrics
+*/}}
+{{- define "strimzi-kafka.metricsConfigMapName" -}}
+{{- $releaseName := .Release.Name -}}
+{{- $component := .component -}}
+{{- printf "%s-kafka-%s-metrics" $releaseName $component | trunc 63 | trimSuffix "-" }}
+{{- end }}
+
+{{/*
 Global values for namespace - defaults to Release.Namespace if not specified
 */}}
 {{- define "strimzi-kafka.namespace" -}}

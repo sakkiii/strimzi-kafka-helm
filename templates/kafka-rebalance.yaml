@@ -1,18 +1,22 @@
-{{- range $clusterName, $cluster := .Values.kafkaClusters }}
-{{- if and $cluster.enabled $cluster.rebalanceTemplates }}
-{{- $clusterContext := dict "clusterName" $clusterName "context" $ }}
-{{- range $cluster.rebalanceTemplates }}
+{{- if .Values.kafkaRebalances }}
+{{- range .Values.kafkaRebalances }}
 ---
 apiVersion: kafka.strimzi.io/v1beta2
 kind: KafkaRebalance
 metadata:
-  name: {{ .name }}
-  namespace: {{ $cluster.namespace }}
+  name: {{ include "strimzi-kafka.resourceName" (dict "Release" $.Release "componentType" "rebalance" "componentName" .name) }}
+  namespace: {{ include "strimzi-kafka.namespace" $ }}
   labels:
-    {{- include "strimzi-kafka-multi-cluster.clusterLabels" $clusterContext | nindent 4 }}
+    {{- include "strimzi-kafka.labels" $ | nindent 4 }}
+    strimzi.io/cluster: {{ include "strimzi-kafka.clusterName" $ }}
+  {{- with $.Values.global.commonAnnotations }}
   annotations:
     strimzi.io/rebalance-template: "true"
-    {{- include "strimzi-kafka-multi-cluster.annotations" $ | nindent 4 }}
+    {{- toYaml . | nindent 4 }}
+  {{- else }}
+  annotations:
+    strimzi.io/rebalance-template: "true"
+  {{- end }}
 spec:
   {{- if .goals }}
   goals:
@@ -38,7 +42,6 @@ spec:
   {{- if .replicationThrottle }}
   replicationThrottle: {{ .replicationThrottle }}
   {{- end }}
-{{- end }}
 {{- end }}
 {{- end }}
 
