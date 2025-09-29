@@ -543,17 +543,10 @@ kafkaTopics: [] # Array of KafkaTopic objects
 
 # Kafka Connect Configuration
 kafkaConnects: [] # Array of KafkaConnect objects
-  # - name: os-connect-cluster
+  # - name: my-connect-cluster
   #   replicas: 1
-  #   version: "3.9.0"
-  #   # Image Configuration for this Connect cluster
-  #   image:
-  #     registry: "" # If empty, uses global.defaultImageRegistry
-  #     repository: "" # If empty, uses global.defaultImageRepository
-  #     name: "kafka-connect" # Connect image name
-  #     tag: "" # If empty, uses global.defaultImageTag
-  #     pullPolicy: "" # If empty, uses global.imagePullPolicy
-  #     pullSecrets: [] # Additional pull secrets for this Connect cluster
+  #   # version: "3.9.0"  # Optional: defaults to cluster version
+  #   # image:  # Optional: uses global image settings
   #   resources:
   #     requests:
   #       memory: 2Gi
@@ -561,34 +554,23 @@ kafkaConnects: [] # Array of KafkaConnect objects
   #     limits:
   #       memory: 2Gi
   #       cpu: 2
-  #   bootstrapServers: "{{ .Release.Name }}.example.com:443"
-  #   rack:
-  #     enabled: true
-  #     topologyKey: topology.kubernetes.io/zone
+  #   # bootstrapServers:  # Optional: auto-generated from cluster
+  #   # rack:  # Optional: inherits from cluster rack awareness
   #   config:
-  #     group.id: "connect-cluster"
-  #     config.storage.topic: "connect-configs"
-  #     offset.storage.topic: "connect-offsets"
-  #     status.storage.topic: "connect-status"
-  #     key.converter: "org.apache.kafka.connect.storage.StringConverter"
-  #     value.converter: "org.apache.kafka.connect.json.JsonConverter"
-  #     value.converter.schemas.enable: "false"
-  #   tls:
-  #     trustedCertificates:
-  #       - secretName: "{{ .Release.Name }}-tls"
-  #         pattern: "*.crt"
-  #       - secretName: acm-kafka-tls-cert # Example for additional certs
-  #         pattern: "*.crt"
-  #   authentication:
-  #     type: scram-sha-512
-  #     username: mm2-user
-  #     passwordSecret:
-  #       secretName: os-connect-secret
-  #       password: password
+  #     # group.id:  # Optional: auto-generated as {clusterName}-connect-cluster
+  #     # config.storage.topic:  # Optional: auto-generated as {clusterName}-connect-configs
+  #     # offset.storage.topic:  # Optional: auto-generated as {clusterName}-connect-offsets
+  #     # status.storage.topic:  # Optional: auto-generated as {clusterName}-connect-status
+  #     # key.converter:  # Optional: defaults to StringConverter
+  #     # value.converter:  # Optional: defaults to JsonConverter
+  #     # value.converter.schemas.enable:  # Optional: defaults to false
+  #     # Additional custom config can be added here
+  #   # tls:  # Optional: auto-generated from cluster TLS listeners
+  #   # authentication:  # Optional: auto-generated from cluster SCRAM-SHA-512 listeners
   #   build:
   #     output:
   #       type: docker
-  #       image: "{{ .Values.global.imageRegistry }}/onemind-dev-ec1-strimzi-images:{{ .Values.global.imageTag }}"
+  #       image: "my-registry/my-connect-image:latest"
   #     plugins:
   #       - name: opensearch-sink
   #         artifacts:
@@ -615,6 +597,26 @@ kafkaRebalances: [] # Array of KafkaRebalance objects
   #     - TopicReplicaDistributionGoal
   #     - LeaderReplicaDistributionGoal
   #     - LeaderBytesInDistributionGoal
+
+# KafkaConnector Configuration
+kafkaConnectors: [] # Array of KafkaConnector objects
+  # - name: my-connector
+  #   kafkaConnect: my-connect-cluster  # Required: Name of the KafkaConnect cluster this connector belongs to
+  #   class: io.confluent.connect.elasticsearch.ElasticsearchSinkConnector
+  #   tasksMax: 1
+  #   config:
+  #     connection.url: "https://elasticsearch:9200"
+  #     connection.username: "elastic"
+  #     connection.password: "password"
+  #     topics: "my-topic"
+  #     type.name: "kafka-connect"
+  #     key.ignore: "false"
+  #     schema.ignore: "true"
+  #   state: "running"  # running, paused, stopped
+  #   pause: false
+  #   autoRestart:
+  #     enabled: true
+  #     maxRestarts: 3
 
 # Monitoring Configuration for Prometheus Operator
 monitoring:
