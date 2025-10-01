@@ -6,7 +6,7 @@ entries:
       licenses: Apache-2.0
     apiVersion: v2
     appVersion: 3.9.0
-    created: "2025-09-15T07:32:28.396432644Z"
+    created: "2025-10-01T05:47:41.975026482Z"
     dependencies:
     - condition: strimzi-kafka-operator.enabled
       name: strimzi-kafka-operator
@@ -14,7 +14,7 @@ entries:
       version: 0.47.0
     description: A flexible Helm chart for deploying Strimzi Kafka clusters with KRaft
       mode, multiple listeners, and comprehensive configuration options
-    digest: 21583c71576fead37fb038bded9f90eb28a4cb60f0b5db8aca8078730dbebc0d
+    digest: a2958fb3d5687ca6ed83ffbd7484d3247914d34ecae229ba500a011203860244
     home: https://strimzi.io/
     keywords:
     - kafka
@@ -29,11 +29,11 @@ entries:
     - https://github.com/strimzi/strimzi-kafka-operator
     type: application
     urls:
-    - https://your-username.github.io/strimzi-kafka-helm/strimzi-kafka-helm-0.1.0.tgz
-    version: 0.1.0
-generated: "2025-09-15T07:32:28.390393342Z"
-# Generated on: 2025-09-15T07:32:28Z
-# Chart Version: 0.1.0
+    - https://your-username.github.io/strimzi-kafka-helm/strimzi-kafka-helm-0.1.1.tgz
+    version: 0.1.1
+generated: "2025-10-01T05:47:41.968736233Z"
+# Generated on: 2025-10-01T05:47:41Z
+# Chart Version: 0.1.1
 # App Version: 3.9.0
-# Commit: 476e224e63be8267f6a88e5b9f459f8260c55b4e
+# Commit: 206d8e7c2788b3abafd1d8e892d6fe0c650316b4
 # OCI Registry: ghcr.io/sakkiii/strimzi-kafka-helm
