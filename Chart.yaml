@@ -2,7 +2,7 @@ apiVersion: v2
 name: strimzi-kafka-helm
 description: A flexible Helm chart for deploying Strimzi Kafka clusters with KRaft mode, multiple listeners, and comprehensive configuration options
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "3.9.0"
 keywords:
   - kafka
