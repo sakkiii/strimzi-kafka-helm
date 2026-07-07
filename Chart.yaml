@@ -14,7 +14,7 @@ sources:
   - https://github.com/strimzi/strimzi-kafka-operator
 maintainers:
   - name: Kafka Team
-    email: s@sakkiii.in
+    email: maintainers@strimzi.io
 dependencies:
   - name: strimzi-kafka-operator
     version: "0.47.0"

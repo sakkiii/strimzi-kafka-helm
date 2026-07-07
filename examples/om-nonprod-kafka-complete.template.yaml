@@ -1,0 +1,204 @@
+# ⚠️ TEMPLATE FILE FOR REFERENCE
+# This is a TEMPLATED example showing the structure of a complete Kafka deployment.
+# DO NOT commit actual deployment manifests with sensitive information to git.
+#
+# To use this template:
+# 1. Replace all placeholder values (marked with <PLACEHOLDER>) with your actual values
+# 2. Store the resulting file in a secure location (Kubernetes secrets, sealed-secrets, vault, etc.)
+# 3. Never commit actual deployment manifests to version control
+#
+# Sensitive information to replace:
+# - <AWS_ACCOUNT_ID>: Your AWS account ID
+# - <DOMAIN_NAME>: Your domain name
+# - <ECR_REGISTRY>: Your ECR registry URL
+# - <KAFKA_PASSWORD>: Use external secret management (AWS Secrets Manager, HashiCorp Vault)
+# - <ELASTICSEARCH_URL>: Store endpoints in external secret management
+
+---
+# Source: strimzi-kafka-helm/templates/configmaps.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kafka-dev-kafka-metrics-kafka
+  namespace: kafka-system  # Change to your namespace
+  labels:
+    helm.sh/chart: strimzi-kafka-helm-0.1.0
+    app.kubernetes.io/name: strimzi-kafka-helm
+    app.kubernetes.io/instance: kafka-dev
+    app.kubernetes.io/version: "3.9.0"
+    app.kubernetes.io/managed-by: Helm
+    environment: dev
+data:
+  metrics-config.yml: |
+    # Default Kafka JMX Prometheus Exporter Configuration
+    # See https://github.com/prometheus/jmx_exporter for more info
+    lowercaseOutputName: true
+    rules:
+    - pattern: kafka.server<type=(.+), name=(.+), clientId=(.+), topic=(.+), partition=(.*)><>Value
+      name: kafka_server_$1_$2
+      type: GAUGE
+      labels:
+        clientId: "$3"
+        topic: "$4"
+        partition: "$5"
+
+---
+# Source: strimzi-kafka-helm/templates/kafka-cluster.yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: Kafka
+metadata:
+  name: kafka-dev-cluster
+  namespace: kafka-system  # Change to your namespace
+  labels:
+    helm.sh/chart: strimzi-kafka-helm-0.1.0
+    app.kubernetes.io/name: strimzi-kafka-helm
+    app.kubernetes.io/instance: kafka-dev
+    app.kubernetes.io/version: "3.9.0"
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    strimzi.io/node-pools: enabled
+    strimzi.io/kraft: enabled
+spec:
+  kafka:
+    version: 3.9.0
+    template:
+      pod:
+        metadata:
+          annotations:
+            oneagent.dynatrace.com/inject: "false"
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+              - matchExpressions:
+                - key: eks.amazonaws.com/nodegroup
+                  operator: In
+                  values:
+                  - <YOUR_NODEGROUP_NAME>  # Replace with your nodegroup
+        tolerations:
+          - effect: NoSchedule
+            key: dedicated
+            operator: Equal
+            value: kafka
+    rack:
+      topologyKey: topology.kubernetes.io/zone
+    authorization:
+      type: simple
+      superUsers:
+        - "CN=kafka-admin"
+        - "kafka-superuser"
+    listeners:
+      - name: tls
+        port: 9093
+        type: internal
+        tls: true
+        authentication:
+          type: tls
+      - name: external
+        port: 9095
+        type: ingress
+        tls: true
+        authentication:
+          type: scram-sha-512
+        configuration:
+          class: nginx
+          bootstrap:
+            host: kafka.<DOMAIN_NAME>  # Replace with your domain
+            annotations:
+              external-dns.alpha.kubernetes.io/hostname: kafka.<DOMAIN_NAME>
+              external-dns.alpha.kubernetes.io/ttl: "60"
+          brokers:
+            - broker: 0
+              host: broker-0-kafka.<DOMAIN_NAME>  # Replace with your domain
+              annotations:
+                external-dns.alpha.kubernetes.io/hostname: broker-0-kafka.<DOMAIN_NAME>
+                external-dns.alpha.kubernetes.io/ttl: "60"
+    config:
+      auto.create.topics.enable: false
+      auto.leader.rebalance.enable: true
+      default.replication.factor: 3
+      min.insync.replicas: 2
+      log.retention.hours: 24
+      ssl.enabled.protocols: TLSv1.3, TLSv1.2
+      ssl.protocol: TLSv1.3
+    metricsConfig:
+      type: jmxPrometheusExporter
+      valueFrom:
+        configMapKeyRef:
+          name: kafka-dev-kafka-metrics
+          key: metrics-config.yml
+  entityOperator:
+    topicOperator: {}
+    userOperator: {}
+
+---
+# Source: strimzi-kafka-helm/templates/kafka-connect.yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnect
+metadata:
+  name: kafka-dev-opensearch-connect
+  namespace: kafka-system  # Change to your namespace
+  labels:
+    helm.sh/chart: strimzi-kafka-helm-0.1.0
+    app.kubernetes.io/name: strimzi-kafka-helm
+    app.kubernetes.io/instance: kafka-dev
+    app.kubernetes.io/version: "3.9.0"
+  annotations:
+    strimzi.io/use-connector-resources: "true"
+spec:
+  version: 3.9.0
+  replicas: 1
+  image: quay.io/strimzi/kafka-connect:0.47.0-kafka-3.9.0
+  build:
+    output:
+      image: <AWS_ACCOUNT_ID>.dkr.ecr.<AWS_REGION>.amazonaws.com/<ECR_REPO>:kafka-connect-os  # Replace with your ECR registry
+      type: docker
+    plugins:
+    - artifacts:
+      - type: zip
+        url: https://github.com/Aiven-Open/opensearch-connector-for-apache-kafka/releases/download/v3.1.1/opensearch-connector-for-apache-kafka-3.1.1.zip
+      name: opensearch-sink
+  bootstrapServers: kafka-dev-cluster-kafka-bootstrap:9095
+  config:
+    group.id: kafka-dev-connect-cluster
+    config.storage.topic: kafka-dev-connect-configs
+    offset.storage.topic: kafka-dev-connect-offsets
+    status.storage.topic: kafka-dev-connect-status
+    key.converter: org.apache.kafka.connect.storage.StringConverter
+    value.converter: org.apache.kafka.connect.json.JsonConverter
+  tls:
+    trustedCertificates:
+      - secretName: kafka-dev-cluster-kafka-tls-secret
+        pattern: "*.crt"
+  authentication:
+    type: scram-sha-512
+    username: kafka-connect-user
+    passwordSecret:
+      secretName: kafka-connect-secret
+      password: password
+
+---
+# Source: strimzi-kafka-helm/templates/kafka-connectors.yaml
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaConnector
+metadata:
+  name: kafka-dev-opensearch-sink
+  namespace: kafka-system  # Change to your namespace
+  labels:
+    helm.sh/chart: strimzi-kafka-helm-0.1.0
+    app.kubernetes.io/name: strimzi-kafka-helm
+    app.kubernetes.io/instance: kafka-dev
+spec:
+  class: io.aiven.kafka.connect.opensearch.OpensearchSinkConnector
+  tasksMax: 1
+  config:
+    batch.size: "200"
+    behavior.on.malformed.documents: warn
+    behavior.on.null.values: delete
+    # ⚠️ DO NOT hardcode credentials here
+    # Use secretKeyRef to reference Kubernetes secrets instead
+    connection.url: <ELASTICSEARCH_URL>  # Replace with your Elasticsearch URL
+    connection.username: <USERNAME>  # Use secret reference in production
+    connection.password: <PASSWORD>  # Use secret reference in production
+    flush.timeout.ms: "30000"
+    key.ignore: "true"

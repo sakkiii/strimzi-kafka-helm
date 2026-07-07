@@ -1,0 +1,49 @@
+# Helm
+*.tgz
+*.tar.gz
+Chart.lock
+charts/*/Chart.lock
+
+# Environment-specific deployment files
+# These files often contain sensitive information (credentials, domain names, AWS account IDs)
+*-nonprod-*.yaml
+*-prod-*.yaml
+*-staging-*.yaml
+values-*.yaml
+!values.yaml
+
+# Secrets and sensitive files
+secrets/
+.secrets/
+*.secret
+*.key
+*.pem
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# OS
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Build artifacts
+dist/
+build/
+
+# Credentials files
+kubeconfig
+kubeconfig.yml
+credentials.json
+config.json
